@@ -1,19 +1,19 @@
 #include <cmath>
-
+#include <signal.h>
 #include "rclcpp/rclcpp.hpp"
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 #include <sensor_msgs/msg/joy.hpp>
 #include <sensor_msgs/msg/joy_feedback.hpp>
-
+#include <std_srvs/srv/empty.hpp>
 #include "vive_ros/vr_interface.h"
-
+#include <geometry_msgs/msg/twist_stamped.hpp>
 //void handleDebugMessages(const std::string &msg) {ROS_DEBUG(" [VIVE] %s",msg.c_str());}
 //void handleInfoMessages(const std::string &msg) {ROS_INFO(" [VIVE] %s",msg.c_str());}
 //void handleErrorMessages(const std::string &msg) {ROS_ERROR(" [VIVE] %s",msg.c_str());}
-void handleDebugMessages(const std::string &msg) { }
-void handleInfoMessages(const std::string &msg) { }
-void handleErrorMessages(const std::string &msg) { }
+void handleDebugMessages(const std::string &msg) { std::cerr << "[VIVE] debg : " << msg << std::endl; }
+void handleInfoMessages(const std::string &msg)  { std::cerr << "[VIVE] info : " << msg << std::endl; }
+void handleErrorMessages(const std::string &msg) { std::cerr << "[VIVE] erro : " << msg << std::endl; }
 
 // #define USE_IMAGE
 
