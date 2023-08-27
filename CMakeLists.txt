@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(test_image)
+project(vive_ros)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -94,7 +94,7 @@ find_package(OpenGL REQUIRED)
 
 ## GLEW 1.11
 if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-  # On GNU/Linux, glew can be found on the package manager. 
+  # On GNU/Linux, glew can be found on the package manager.
   find_package(GLEW 1.11 REQUIRED)
 else()
   # Otherwise, use the shipped binaries.
@@ -122,7 +122,7 @@ foreach(lib ${SDL_REQUIRED_LIBRARIES})
       ${THIRDPARTY_DIR}/sdl2-2.0.3/bin
     PATH_SUFFIXES
       linux${PLATFORM}
-      ${WINDOWS_PATH_SUFFIXES}    
+      ${WINDOWS_PATH_SUFFIXES}
     )
   list(APPEND SDL2_LIBRARIES ${${lib}_LIBRARY})
 endforeach()
