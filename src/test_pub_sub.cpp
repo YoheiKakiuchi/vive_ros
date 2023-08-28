@@ -1,11 +1,14 @@
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
+#include <std_srvs/srv/empty.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <iostream>
 
 using std::placeholders::_1;
+using std::placeholders::_2;
+using std::placeholders::_3;
 
 class HOGE
 {
@@ -13,12 +16,14 @@ public:
     HOGE(const std::string _name) : ros_clock(RCL_ROS_TIME) {
         g_node = rclcpp::Node::make_shared(_name);
         tf_broadcaster_ = new tf2_ros::TransformBroadcaster(g_node);
-
+        srv = g_node->create_service<std_srvs::srv::Empty>("empty",
+                                                           std::bind(&HOGE::handle_service, this, _1, _2, _3));
         sub = g_node->create_subscription<std_msgs::msg::String>("subtopic", 10,
               std::bind(&HOGE::topic_callback, this, _1));
         pub = g_node->create_publisher<std_msgs::msg::String>("pubtopic", 10);
     }
     rclcpp::Node::SharedPtr g_node;
+    rclcpp::Service<std_srvs::srv::Empty>::SharedPtr srv;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub;
     //pub;
@@ -41,12 +46,23 @@ public:
 #endif
         rclcpp::Time now = ros_clock.now();
         Eigen::Isometry3d eigenPos = Eigen::Isometry3d::Identity();
-        geometry_msgs::msg::TransformStamped tf = eigenToTransform(eigenPos);
+        geometry_msgs::msg::TransformStamped tf = tf2::eigenToTransform(eigenPos);
         tf.header.stamp = now;
-        tf.header.freame_id = "world_vive";
+        tf.header.frame_id = "world_vive";
         tf.child_frame_id = "hmd";
         tf_broadcaster_->sendTransform(tf);
     }
+    void handle_service(
+        const std::shared_ptr<rmw_request_id_t> request_header,
+        const std::shared_ptr<std_srvs::srv::Empty::Request> ,
+        const std::shared_ptr<std_srvs::srv::Empty::Response> )
+    {
+        (void)request_header;
+        RCLCPP_INFO(
+            g_node->get_logger(),
+            "request: received");
+    }
+
 private:
     rclcpp::Clock ros_clock;
 
@@ -63,7 +79,7 @@ int main(int argc, char * argv[])
   rclcpp::executors::SingleThreadedExecutor exec;
   //rclcpp::executors::StaticSingleThreadedExecutor exec;
   exec.add_node(hoge.g_node);
-  while(1) {
+  while(rclcpp::ok()) {
       std::cerr << "spin!!" << std::endl;
       //rclcpp::spin_some(hoge.g_node);
       //exec.spin_once();

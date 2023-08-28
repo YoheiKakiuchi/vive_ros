@@ -153,6 +153,7 @@ find_package(image_transport REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2_eigen REQUIRED)
 
 set(Boost_USE_STATIC_LIBS OFF)
 set(Boost_ADDITIONAL_VERSIONS "1.62" "1.63" "1.64" "1.65" "1.66" "1.67" "1.68" "1.69" "1.70" "1.71" "1.72" "1.73" "1.74" "1.75" "1.81")
@@ -204,6 +205,7 @@ image_transport
 cv_bridge
 geometry_msgs
 tf2_ros
+tf2_eigen
 OPENGL
 GLEW
 SDL2

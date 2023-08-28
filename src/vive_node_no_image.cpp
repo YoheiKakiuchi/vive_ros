@@ -3,12 +3,12 @@
 #include <rclcpp/rclcpp.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
+#include <tf2_eigen/tf2_eigen.hpp>
 #include <sensor_msgs/msg/joy.hpp>
 #include <sensor_msgs/msg/joy_feedback.hpp>
 #include <std_srvs/srv/empty.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include "vive_ros/vr_interface.h"
-
 
 using namespace std;
 
@@ -194,15 +194,15 @@ class VIVEnode
     rclcpp::Rate loop_rate_;
     std::vector<double> world_offset_;
     double world_yaw_;
-    tf2_ros::TransformBroadcaster tf_broadcaster_;
-    tf2_ros::TransformListener tf_listener_;
+    tf2_ros::TransformBroadcaster *tf_broadcaster_;
+    //tf2_ros::TransformListener tf_listener_;
 
     //ros::ServiceServer set_origin_server_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist0_pub_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist1_pub_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist2_pub_;
+    rclcpp::Subscription<sensor_msgs::msg::JoyFeedback>::SharedPtr feedback_sub_;
     //std::map<std::string, ros::Publisher> button_states_pubs_map;
-    //ros::Subscriber feedback_sub_;
 };
 
 VIVEnode::VIVEnode(int rate)
@@ -212,6 +212,8 @@ VIVEnode::VIVEnode(int rate)
   , world_yaw_(0)
 {
     ros2node = rclcpp::Node::make_shared("vive_node");
+    tf_broadcaster_ = new tf2_ros::TransformBroadcaster(ros2node);
+
     //nh_.getParam("/vive/world_offset", world_offset_);
     //nh_.getParam("/vive/world_yaw", world_yaw_);
     //ROS_INFO(" [VIVE] World offset: [%2.3f , %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
@@ -219,8 +221,8 @@ VIVEnode::VIVEnode(int rate)
     twist0_pub_ = ros2node->crate_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist0", 10);
     twist1_pub_ = ros2node->crate_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist1", 10);
     twist2_pub_ = ros2node->crate_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist2", 10);
-    //feedback_sub_ = nh_.subscribe("/vive/set_feedback", 10, &VIVEnode::set_feedback, this);
-
+    feedback_sub_ = g_node->create_subscription<std_msgs::msg::String>("/vive/set_feedback", 10,
+                                                                       std::bind(&VIVEnode::set_feedback, this, _1));
 #ifdef USE_IMAGE
   image_transport::ImageTransport it(nh_);
   sub_L = it.subscribe("/image_left", 1, &VIVEnode::imageCb_L, this);
@@ -322,7 +324,7 @@ void VIVEnode::Run()
   rclcpp::executors::SingleThreadedExecutor exec;
   exec.add_node(ros2node);
   //while (ros::ok())
-  while (true)
+  while (rclcpp::ok())
   {
     // do stuff
     vr_.Update();
