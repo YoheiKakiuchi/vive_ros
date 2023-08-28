@@ -1,13 +1,14 @@
 #include <cmath>
 #include <signal.h>
-#include "rclcpp/rclcpp.hpp"
+#include <rclcpp/rclcpp.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 #include <sensor_msgs/msg/joy.hpp>
 #include <sensor_msgs/msg/joy_feedback.hpp>
 #include <std_srvs/srv/empty.hpp>
-#include "vive_ros/vr_interface.h"
 #include <geometry_msgs/msg/twist_stamped.hpp>
+#include "vive_ros/vr_interface.h"
+
 
 using namespace std;
 
@@ -37,7 +38,7 @@ ros::shutdown();
 enum {X, Y, XY};
 enum {L, R, LR};
 
-#if defined USE_OPENGL
+//#if defined USE_OPENGL
 #include "vive_ros/hellovr_opengl_main.h"
 class CMainApplicationMod : public CMainApplication{
   public:
@@ -148,269 +149,8 @@ class CMainApplicationMod : public CMainApplication{
       }
     }
 };
-
-#elif defined USE_VULKAN
-#include "vive_ros/hellovr_vulkan_main.h"
-
-class CMainApplicationMod : public CMainApplication
-{
-  public:
-    CMainApplicationMod( int argc, char *argv[] )
-    : CMainApplication( argc, argv )
-    , hmd_fov(110*M_PI/180) {
-//      m_bShowCubes = false;
-      for(int i=0;i<LR;i++){
-        cam_f[i][X] = cam_f[i][Y] = 600;
-      }
-      RenderFrame_hz_count = 0;
-    };
-    ~CMainApplicationMod(){};
-    VRInterface* vr_p;
-
-    cv::Mat ros_img[LR];
-    double cam_f[LR][XY];
-    const double hmd_fov;//field of view
-    float hmd_fov_h, hmd_fov_v;
-    int RenderFrame_hz_count;
-
-    void InitTextures(){
-      ros_img[L] = cv::Mat(cv::Size(640, 480), CV_8UC3, CV_RGB(255,0,0));
-      ros_img[R] = cv::Mat(cv::Size(640, 480), CV_8UC3, CV_RGB(0,255,0));
-      hmd_panel_img[L] = cv::Mat(cv::Size(m_nRenderWidth, m_nRenderHeight), CV_8UC3, CV_RGB(100,100,100));
-      hmd_panel_img[R] = cv::Mat(cv::Size(m_nRenderWidth, m_nRenderHeight), CV_8UC3, CV_RGB(100,100,100));
-      for ( int i = 0; i < vr::k_unMaxTrackedDeviceCount; i++){
-        if(m_pHMD->GetTrackedDeviceClass(i) == vr::TrackedDeviceClass_HMD){
-          m_pHMD->GetStringTrackedDeviceProperty( i, vr::Prop_ScreenshotHorizontalFieldOfViewDegrees_Float, (char *)&hmd_fov_h, sizeof(float), NULL );
-          m_pHMD->GetStringTrackedDeviceProperty( i, vr::Prop_ScreenshotVerticalFieldOfViewDegrees_Float, (char *)&hmd_fov_v, sizeof(float), NULL );
-        }
-      }
-    }
-    void RenderFrame() {
-      if ( m_pHMD ) {
-        m_currentCommandBuffer = GetCommandBuffer();
-        // Start the command buffer
-        VkCommandBufferBeginInfo commandBufferBeginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-        commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer( m_currentCommandBuffer.m_pCommandBuffer, &commandBufferBeginInfo );
-        UpdateControllerAxes();
-        RenderStereoTargets();
-        UpdateTexturemaps();
-        RenderCompanionWindow();
-        // End the command buffer
-        vkEndCommandBuffer( m_currentCommandBuffer.m_pCommandBuffer );
-        // Submit the command buffer
-        VkPipelineStageFlags nWaitDstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &m_currentCommandBuffer.m_pCommandBuffer;
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores = &m_pSwapchainSemaphores[ m_nFrameIndex ];
-        submitInfo.pWaitDstStageMask = &nWaitDstStageMask;
-        vkQueueSubmit( m_pQueue, 1, &submitInfo, m_currentCommandBuffer.m_pFence );
-        // Add the command buffer back for later recycling
-        m_commandBuffers.push_front( m_currentCommandBuffer );
-        // Submit to SteamVR
-        vr::VRTextureBounds_t bounds;
-        bounds.uMin = 0.0f;
-        bounds.uMax = 1.0f;
-        bounds.vMin = 0.0f;
-        bounds.vMax = 1.0f;
-        vr::VRVulkanTextureData_t vulkanData;
-        vulkanData.m_nImage = ( uint64_t ) m_leftEyeDesc.m_pImage;
-        vulkanData.m_pDevice = ( VkDevice_T * ) m_pDevice;
-        vulkanData.m_pPhysicalDevice = ( VkPhysicalDevice_T * ) m_pPhysicalDevice;
-        vulkanData.m_pInstance = ( VkInstance_T *) m_pInstance;
-        vulkanData.m_pQueue = ( VkQueue_T * ) m_pQueue;
-        vulkanData.m_nQueueFamilyIndex = m_nQueueFamilyIndex;
-        vulkanData.m_nWidth = m_nRenderWidth;
-        vulkanData.m_nHeight = m_nRenderHeight;
-        vulkanData.m_nFormat = VK_FORMAT_R8G8B8A8_SRGB;
-        vulkanData.m_nSampleCount = m_nMSAASampleCount;
-        vr::Texture_t texture = { &vulkanData, vr::TextureType_Vulkan, vr::ColorSpace_Auto };
-
-
-
-
-//
-//        VkDeviceSize nBufferSize = 0;
-//        uint8_t *pBuffer = new uint8_t[ m_nRenderWidth * m_nRenderHeight * 4 * 2 ];
-//        uint8_t *pPrevBuffer = pBuffer;
-//        uint8_t *pCurBuffer = pBuffer;
-//        memcpy( pCurBuffer, hmd_panel_img[L].data, sizeof( uint8_t ) * m_nRenderWidth * m_nRenderHeight * 3 );// 4 -> 3
-//        pCurBuffer += sizeof( uint8_t ) * m_nRenderWidth * m_nRenderHeight * 4;
-//
-//        std::vector< VkBufferImageCopy > bufferImageCopies;
-//        VkBufferImageCopy bufferImageCopy = {};
-//        bufferImageCopy.bufferOffset = 0;
-//        bufferImageCopy.bufferRowLength = 0;
-//        bufferImageCopy.bufferImageHeight = 0;
-//        bufferImageCopy.imageSubresource.baseArrayLayer = 0;
-//        bufferImageCopy.imageSubresource.layerCount = 1;
-//        bufferImageCopy.imageSubresource.mipLevel = 0;
-//        bufferImageCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-//        bufferImageCopy.imageOffset.x = 0;
-//        bufferImageCopy.imageOffset.y = 0;
-//        bufferImageCopy.imageOffset.z = 0;
-//        bufferImageCopy.imageExtent.width = m_nRenderWidth;
-//        bufferImageCopy.imageExtent.height = m_nRenderHeight;
-//        bufferImageCopy.imageExtent.depth = 1;
-//        bufferImageCopies.push_back( bufferImageCopy );
-//        int nMipWidth = m_nRenderWidth;
-//        int nMipHeight = m_nRenderHeight;
-//        while( nMipWidth > 1 && nMipHeight > 1 )
-//        {
-//          GenMipMapRGBA( pPrevBuffer, pCurBuffer, nMipWidth, nMipHeight, &nMipWidth, &nMipHeight );
-//          bufferImageCopy.bufferOffset = pCurBuffer - pBuffer;
-//          bufferImageCopy.imageSubresource.mipLevel++;
-//          bufferImageCopy.imageExtent.width = nMipWidth;
-//          bufferImageCopy.imageExtent.height = nMipHeight;
-//          bufferImageCopies.push_back( bufferImageCopy );
-//          pPrevBuffer = pCurBuffer;
-//          pCurBuffer += ( nMipWidth * nMipHeight * 4 * sizeof( uint8_t ) );
-//        }
-//        nBufferSize = pCurBuffer - pBuffer;
-//
-//        // Create the image
-//        VkImageCreateInfo imageCreateInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-//        imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-//        imageCreateInfo.extent.width = m_nRenderWidth;
-//        imageCreateInfo.extent.height = m_nRenderHeight;
-//        imageCreateInfo.extent.depth = 1;
-//        imageCreateInfo.mipLevels = ( uint32_t ) bufferImageCopies.size();
-//        imageCreateInfo.arrayLayers = 1;
-//        imageCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-//        imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-//        imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-//        imageCreateInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-//        imageCreateInfo.flags = 0;
-//        vkCreateImage( m_pDevice, &imageCreateInfo, nullptr, &m_pSceneImage );
-//
-//
-//        vulkanData.m_nImage = ( uint64_t ) m_leftEyeDesc.m_pImage;
-
-
-//        vkCmdCopyBufferToImage( m_currentCommandBuffer.m_pCommandBuffer, m_pSceneStagingBuffer, m_pSceneImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, ( uint32_t ) bufferImageCopies.size(), &bufferImageCopies[ 0 ] );
-
-//        std::cerr<<"test_ptr"<<test_ptr<<std::endl;
-//        memcpy( test_ptr, hmd_panel_img[L].data, sizeof( uint8_t ) * m_nRenderWidth * m_nRenderHeight  );
-//        memcpy( test_ptr, hmd_panel_img[L].data, sizeof( uint8_t )*100);
-
-
-
-
-
-
-        vr::VRCompositor()->Submit( vr::Eye_Left, &texture, &bounds );
-        vulkanData.m_nImage = ( uint64_t ) m_rightEyeDesc.m_pImage;
-        vr::VRCompositor()->Submit( vr::Eye_Right, &texture, &bounds );
-      }
-      VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-      presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-      presentInfo.pNext = NULL;
-      presentInfo.swapchainCount = 1;
-      presentInfo.pSwapchains = &m_pSwapchain;
-      presentInfo.pImageIndices = &m_nCurrentSwapchainImage;
-      vkQueuePresentKHR( m_pQueue, &presentInfo );
-      // Spew out the controller and pose count whenever they change.
-      if ( m_iTrackedControllerCount != m_iTrackedControllerCount_Last || m_iValidPoseCount != m_iValidPoseCount_Last ) {
-        m_iValidPoseCount_Last = m_iValidPoseCount;
-        m_iTrackedControllerCount_Last = m_iTrackedControllerCount;
-        dprintf( "PoseCount:%d(%s) Controllers:%d\n", m_iValidPoseCount, m_strPoseClasses.c_str(), m_iTrackedControllerCount );
-      }
-      UpdateHMDMatrixPose();
-      m_nFrameIndex = ( m_nFrameIndex + 1 ) % m_swapchainImages.size();
-    }
-
-  private:
-    cv::Mat hmd_panel_img[LR];
-    cv::Mat ros_img_resized[LR];
-    void processROSStereoImage(cv::Mat (&in)[LR], cv::Mat (&out)[LR]){
-      const double hmd_eye2panel_z[XY] = { (double)out[L].rows/2/tan(hmd_fov/2), (double)out[L].rows/2/tan(hmd_fov/2) };
-      const double cam_pic_size[LR][XY] = { { (double)in[L].cols, (double)in[L].rows }, { (double)in[R].cols, (double)in[R].rows } };
-      double cam_fov[LR][XY];
-      int cam_pic_size_on_hmd[LR][XY];
-      cv::Mat hmd_panel_roi[LR];
-      for(int i=0;i<LR;i++){
-        ROS_INFO_THROTTLE(3.0,"Process ROS image[%d] (%dx%d) with fov (%dx%d) to (%dx%d)", i, in[i].cols, in[i].rows, (int)cam_f[i][X], (int)cam_f[i][Y], out[i].cols, out[i].rows);
-        for(int j=0;j<XY;j++){
-          cam_fov[i][j] = 2 * atan( cam_pic_size[i][j]/2 / cam_f[i][j] );
-          cam_pic_size_on_hmd[i][j] = (int)( hmd_eye2panel_z[X] * 2 * tan(cam_fov[i][j]/2) );
-        }
-        cv::resize(in[i], ros_img_resized[i], cv::Size(cam_pic_size_on_hmd[i][X], cam_pic_size_on_hmd[i][Y]));
-        cv::flip(ros_img_resized[i], ros_img_resized[i], 0);
-        cv::Rect hmd_panel_area_rect( ros_img_resized[i].cols/2-out[i].cols/2, ros_img_resized[i].rows/2-out[i].rows/2, out[i].cols, out[i].rows);
-        cv::Rect ros_img_resized_rect( 0, 0, ros_img_resized[i].cols, ros_img_resized[i].rows);
-        cv::Point ros_img_resized_center(ros_img_resized[i].cols/2, ros_img_resized[i].rows/2);
-        cv::Rect cropped_rect;
-        if( !hmd_panel_area_rect.contains( cv::Point(ros_img_resized_rect.x, ros_img_resized_rect.y) )
-            || !hmd_panel_area_rect.contains( cv::Point(ros_img_resized_rect.x+ros_img_resized_rect.width,ros_img_resized_rect.y+ros_img_resized_rect.height) ) ){
-          ROS_WARN_THROTTLE(3.0,"Resized ROS image[%d] (%dx%d) exceed HMD eye texture (%dx%d) -> Cropping",i,cam_pic_size_on_hmd[i][X],cam_pic_size_on_hmd[i][Y],m_nRenderWidth,m_nRenderHeight);
-          cropped_rect = ros_img_resized_rect & hmd_panel_area_rect;
-          ros_img_resized[i] = ros_img_resized[i](cropped_rect);
-        }
-        cv::Rect hmd_panel_draw_rect( cropped_rect.x-hmd_panel_area_rect.x, cropped_rect.y-hmd_panel_area_rect.y, ros_img_resized[i].cols, ros_img_resized[i].rows);
-        ros_img_resized[i].copyTo(out[i](hmd_panel_draw_rect));
-      }
-    }
-    void UpdateTexturemaps(){
-//      VkDeviceSize nBufferSize = 0;
-//      uint8_t *pBuffer = new uint8_t[ m_nRenderWidth * m_nRenderHeight * 4 * 2 ];
-//      uint8_t *pPrevBuffer = pBuffer;
-//      uint8_t *pCurBuffer = pBuffer;
-//      memcpy( pCurBuffer, &imageRGBA[0], sizeof( uint8_t ) * m_nRenderWidth * m_nRenderHeight * 4 );
-//      pCurBuffer += sizeof( uint8_t ) * m_nRenderWidth * m_nRenderHeight * 4;
-//
-//      std::vector< VkBufferImageCopy > bufferImageCopies;
-//      VkBufferImageCopy bufferImageCopy = {};
-//      bufferImageCopy.bufferOffset = 0;
-//      bufferImageCopy.bufferRowLength = 0;
-//      bufferImageCopy.bufferImageHeight = 0;
-//      bufferImageCopy.imageSubresource.baseArrayLayer = 0;
-//      bufferImageCopy.imageSubresource.layerCount = 1;
-//      bufferImageCopy.imageSubresource.mipLevel = 0;
-//      bufferImageCopy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-//      bufferImageCopy.imageOffset.x = 0;
-//      bufferImageCopy.imageOffset.y = 0;
-//      bufferImageCopy.imageOffset.z = 0;
-//      bufferImageCopy.imageExtent.width = m_nRenderWidth;
-//      bufferImageCopy.imageExtent.height = m_nRenderHeight;
-//      bufferImageCopy.imageExtent.depth = 1;
-//      bufferImageCopies.push_back( bufferImageCopy );
-//
-//      int nMipWidth = m_nRenderWidth;
-//      int nMipHeight = m_nRenderHeight;
-//
-//      while( nMipWidth > 1 && nMipHeight > 1 )
-//      {
-//        GenMipMapRGBA( pPrevBuffer, pCurBuffer, nMipWidth, nMipHeight, &nMipWidth, &nMipHeight );
-//        bufferImageCopy.bufferOffset = pCurBuffer - pBuffer;
-//        bufferImageCopy.imageSubresource.mipLevel++;
-//        bufferImageCopy.imageExtent.width = nMipWidth;
-//        bufferImageCopy.imageExtent.height = nMipHeight;
-//        bufferImageCopies.push_back( bufferImageCopy );
-//        pPrevBuffer = pCurBuffer;
-//        pCurBuffer += ( nMipWidth * nMipHeight * 4 * sizeof( uint8_t ) );
-//      }
-//      nBufferSize = pCurBuffer - pBuffer;
-//
-//      // Create the image
-//      VkImageCreateInfo imageCreateInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-//      imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-//      imageCreateInfo.extent.width = m_nRenderWidth;
-//      imageCreateInfo.extent.height = m_nRenderHeight;
-//      imageCreateInfo.extent.depth = 1;
-//      imageCreateInfo.mipLevels = ( uint32_t ) bufferImageCopies.size();
-//      imageCreateInfo.arrayLayers = 1;
-//      imageCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-//      imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-//      imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-//      imageCreateInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-//      imageCreateInfo.flags = 0;
-//      vkCreateImage( m_pDevice, &imageCreateInfo, nullptr, &m_pSceneImage );
-    }
-};
-#endif
-#else
+//#endif
+#else // USE_IMAGE
 // import from opengl sample
 std::string GetTrackedDeviceString( vr::IVRSystem *pHmd, vr::TrackedDeviceIndex_t unDevice, vr::TrackedDeviceProperty prop, vr::TrackedPropertyError *peError = NULL )
 {
@@ -426,7 +166,6 @@ std::string GetTrackedDeviceString( vr::IVRSystem *pHmd, vr::TrackedDeviceIndex_
 }
 #endif
 
-
 class VIVEnode
 {
   public:
@@ -436,7 +175,7 @@ class VIVEnode
     void Run();
     void Shutdown();
     bool setOriginCB(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res);
-    void set_feedback(sensor_msgs::JoyFeedbackConstPtr msg);
+    void set_feedback(const sensor_msgs::msg::JoyFeedback &msg);
     //ros::NodeHandle nh_;
     rclcpp::Node::SharedPtr ros2node;
     VRInterface vr_;
@@ -452,15 +191,16 @@ class VIVEnode
 #endif
 
   private:
-    ros::Rate loop_rate_;
+    rclcpp::Rate loop_rate_;
     std::vector<double> world_offset_;
     double world_yaw_;
     tf2_ros::TransformBroadcaster tf_broadcaster_;
     tf2_ros::TransformListener tf_listener_;
+
     //ros::ServiceServer set_origin_server_;
-    //ros::Publisher twist0_pub_;
-    //ros::Publisher twist1_pub_;
-    //ros::Publisher twist2_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist0_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist1_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist2_pub_;
     //std::map<std::string, ros::Publisher> button_states_pubs_map;
     //ros::Subscriber feedback_sub_;
 };
@@ -476,9 +216,9 @@ VIVEnode::VIVEnode(int rate)
     //nh_.getParam("/vive/world_yaw", world_yaw_);
     //ROS_INFO(" [VIVE] World offset: [%2.3f , %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
     //set_origin_server_ = nh_.advertiseService("/vive/set_origin", &VIVEnode::setOriginCB, this);
-    //twist0_pub_ = nh_.advertise<geometry_msgs::TwistStamped>("/vive/twist0", 10);
-    //twist1_pub_ = nh_.advertise<geometry_msgs::TwistStamped>("/vive/twist1", 10);
-    //twist2_pub_ = nh_.advertise<geometry_msgs::TwistStamped>("/vive/twist2", 10);
+    twist0_pub_ = ros2node->crate_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist0", 10);
+    twist1_pub_ = ros2node->crate_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist1", 10);
+    twist2_pub_ = ros2node->crate_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist2", 10);
     //feedback_sub_ = nh_.subscribe("/vive/set_feedback", 10, &VIVEnode::set_feedback, this);
 
 #ifdef USE_IMAGE
@@ -526,6 +266,7 @@ void VIVEnode::Shutdown()
 
 bool VIVEnode::setOriginCB(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res)
 {
+#if 0
   double tf_matrix[3][4];
   int index = 1, dev_type;
   while (dev_type != 2) 
@@ -561,11 +302,11 @@ bool VIVEnode::setOriginCB(std_srvs::Empty::Request& req, std_srvs::Empty::Respo
   nh_.setParam("/vive/world_offset", world_offset_);
   nh_.setParam("/vive/world_yaw", world_yaw_);
   ROS_INFO(" [VIVE] New world offset: [%2.3f , %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
-
+#endif
   return true;
 }
 
-void VIVEnode::set_feedback(sensor_msgs::JoyFeedbackConstPtr msg) {
+void VIVEnode::set_feedback(const sensor_msgs::msg::JoyFeedback &msg) {
   if(msg->type == 1 /* TYPE_RUMBLE */) {
     vr_.TriggerHapticPulse(msg->id, 0, (int)(msg->intensity));
     for(int i=0;i<16;i++)
@@ -578,7 +319,10 @@ void VIVEnode::Run()
   double tf_matrix[3][4];
   int run_hz_count = 0;
 
-  while (ros::ok())
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(ros2node);
+  //while (ros::ok())
+  while (true)
   {
     // do stuff
     vr_.Update();
@@ -593,11 +337,11 @@ void VIVEnode::Run()
       // No device
       if (dev_type == 0) continue;
 
-      tf::Transform tf;
+      tf2::Transform tf;
       tf.setOrigin(tf::Vector3(tf_matrix[0][3], tf_matrix[1][3], tf_matrix[2][3]));
 
-      tf::Quaternion quat;
-      tf::Matrix3x3 rot_matrix(tf_matrix[0][0], tf_matrix[0][1], tf_matrix[0][2],
+      tf2::Quaternion quat;
+      tf2::Matrix3x3 rot_matrix(tf_matrix[0][0], tf_matrix[0][1], tf_matrix[0][2],
                                tf_matrix[1][0], tf_matrix[1][1], tf_matrix[1][2],
                                tf_matrix[2][0], tf_matrix[2][1], tf_matrix[2][2]);
 
@@ -735,9 +479,9 @@ void VIVEnode::Run()
     pMainApplication->RenderFrame();
 #endif
 
-    ROS_INFO_THROTTLE(1.0,"Run() @ %d [fps]", [](int& cin){int ans = cin; cin=0; return ans;}(run_hz_count));
+    // ROS_INFO_THROTTLE(1.0,"Run() @ %d [fps]", [](int& cin){int ans = cin; cin=0; return ans;}(run_hz_count));
     run_hz_count++;
-    ros::spinOnce();
+    exec.spin_all(std::chrono::nanoseconds(10000000000));// timeout 10 sec
     loop_rate_.sleep();
   }
 }
