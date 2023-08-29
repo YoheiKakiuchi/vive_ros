@@ -6,11 +6,15 @@
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <sensor_msgs/msg/joy.hpp>
 #include <sensor_msgs/msg/joy_feedback.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/empty.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include "vive_ros/vr_interface.h"
 
 using namespace std;
+using std::placeholders::_1;
+using std::placeholders::_2;
+using std::placeholders::_3;
 
 //void handleDebugMessages(const std::string &msg) {ROS_DEBUG(" [VIVE] %s",msg.c_str());}
 //void handleInfoMessages(const std::string &msg) {ROS_INFO(" [VIVE] %s",msg.c_str());}
@@ -22,7 +26,7 @@ void mySigintHandler(int sig){
 // Do some custom action.
 // For example, publish a stop message to some other nodes.
 // All the default sigint handler does is call shutdown()
-ros::shutdown();
+//ros::shutdown();
 }
 
 //#define USE_IMAGE
@@ -174,7 +178,9 @@ class VIVEnode
     bool Init();
     void Run();
     void Shutdown();
-    bool setOriginCB(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res);
+    void setOriginCB(const std::shared_ptr<rmw_request_id_t> request_header,
+		     const std::shared_ptr<std_srvs::srv::Empty::Request> &req,
+		     const std::shared_ptr<std_srvs::srv::Empty::Response> &res);
     void set_feedback(const sensor_msgs::msg::JoyFeedback &msg);
     //ros::NodeHandle nh_;
     rclcpp::Node::SharedPtr ros2node;
@@ -192,6 +198,7 @@ class VIVEnode
 
   private:
     rclcpp::Rate loop_rate_;
+    rclcpp::Clock ros_clock;
     std::vector<double> world_offset_;
     double world_yaw_;
     tf2_ros::TransformBroadcaster *tf_broadcaster_;
@@ -210,6 +217,7 @@ VIVEnode::VIVEnode(int rate)
   , vr_()
   , world_offset_({0, 0, 0})
   , world_yaw_(0)
+  , ros_clock(RCL_ROS_TIME)
 {
     ros2node = rclcpp::Node::make_shared("vive_node");
     tf_broadcaster_ = new tf2_ros::TransformBroadcaster(ros2node);
@@ -218,11 +226,11 @@ VIVEnode::VIVEnode(int rate)
     //nh_.getParam("/vive/world_yaw", world_yaw_);
     //ROS_INFO(" [VIVE] World offset: [%2.3f , %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
     //set_origin_server_ = nh_.advertiseService("/vive/set_origin", &VIVEnode::setOriginCB, this);
-    twist0_pub_ = ros2node->crate_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist0", 10);
-    twist1_pub_ = ros2node->crate_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist1", 10);
-    twist2_pub_ = ros2node->crate_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist2", 10);
-    feedback_sub_ = g_node->create_subscription<std_msgs::msg::String>("/vive/set_feedback", 10,
-                                                                       std::bind(&VIVEnode::set_feedback, this, _1));
+    twist0_pub_ = ros2node->create_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist0", 10);
+    twist1_pub_ = ros2node->create_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist1", 10);
+    twist2_pub_ = ros2node->create_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist2", 10);
+    feedback_sub_ = ros2node->create_subscription<sensor_msgs::msg::JoyFeedback>("/vive/set_feedback", 10,
+										 std::bind(&VIVEnode::set_feedback, this, _1));
 #ifdef USE_IMAGE
   image_transport::ImageTransport it(nh_);
   sub_L = it.subscribe("/image_left", 1, &VIVEnode::imageCb_L, this);
@@ -237,7 +245,7 @@ VIVEnode::VIVEnode(int rate)
   pMainApplication->vr_p = &(vr_);
   pMainApplication->InitTextures();
 #endif
-  return;
+  //return;
 }
 
 VIVEnode::~VIVEnode()
@@ -266,7 +274,9 @@ void VIVEnode::Shutdown()
   vr_.Shutdown();
 }
 
-bool VIVEnode::setOriginCB(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res)
+void VIVEnode::setOriginCB(const std::shared_ptr<rmw_request_id_t> request_header,
+			   const std::shared_ptr<std_srvs::srv::Empty::Request> &req,
+			   const std::shared_ptr<std_srvs::srv::Empty::Response> &res)  
 {
 #if 0
   double tf_matrix[3][4];
@@ -305,14 +315,14 @@ bool VIVEnode::setOriginCB(std_srvs::Empty::Request& req, std_srvs::Empty::Respo
   nh_.setParam("/vive/world_yaw", world_yaw_);
   ROS_INFO(" [VIVE] New world offset: [%2.3f , %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
 #endif
-  return true;
+  //return true;
 }
 
 void VIVEnode::set_feedback(const sensor_msgs::msg::JoyFeedback &msg) {
-  if(msg->type == 1 /* TYPE_RUMBLE */) {
-    vr_.TriggerHapticPulse(msg->id, 0, (int)(msg->intensity));
+  if(msg.type == 1 /* TYPE_RUMBLE */) {
+    vr_.TriggerHapticPulse(msg.id, 0, (int)(msg.intensity));
     for(int i=0;i<16;i++)
-      vr_.TriggerHapticPulse(i, 0, (int)(msg->intensity));
+      vr_.TriggerHapticPulse(i, 0, (int)(msg.intensity));
   }
 }
 
@@ -339,16 +349,23 @@ void VIVEnode::Run()
       // No device
       if (dev_type == 0) continue;
 
-      tf2::Transform tf;
-      tf.setOrigin(tf::Vector3(tf_matrix[0][3], tf_matrix[1][3], tf_matrix[2][3]));
+      //tf2::Transform tf;
+      //tf.setOrigin(tf::Vector3(tf_matrix[0][3], tf_matrix[1][3], tf_matrix[2][3]));
 
-      tf2::Quaternion quat;
-      tf2::Matrix3x3 rot_matrix(tf_matrix[0][0], tf_matrix[0][1], tf_matrix[0][2],
-                               tf_matrix[1][0], tf_matrix[1][1], tf_matrix[1][2],
-                               tf_matrix[2][0], tf_matrix[2][1], tf_matrix[2][2]);
+      //tf2::Quaternion quat;
+      //tf2::Matrix3x3 rot_matrix(tf_matrix[0][0], tf_matrix[0][1], tf_matrix[0][2],
+      //tf_matrix[1][0], tf_matrix[1][1], tf_matrix[1][2],
+      //tf_matrix[2][0], tf_matrix[2][1], tf_matrix[2][2]);
 
-      rot_matrix.getRotation(quat);
-      tf.setRotation(quat);
+      //rot_matrix.getRotation(quat);
+      //tf.setRotation(quat);
+      Eigen::Translation3d trans(tf_matrix[0][3], tf_matrix[1][3], tf_matrix[2][3]);
+      Eigen::Matrix3d mat;
+      mat << tf_matrix[0][0], tf_matrix[0][1], tf_matrix[0][2],
+	     tf_matrix[1][0], tf_matrix[1][1], tf_matrix[1][2],
+             tf_matrix[2][0], tf_matrix[2][1], tf_matrix[2][2];
+      //Eigen::Isometry3d tf = Eigen::Isometry3d::Identity();
+      Eigen::Isometry3d tf(trans * Eigen::Quaterniond(mat));
       //get device serial number
       std::string cur_sn = GetTrackedDeviceString( vr_.pHMD_, i, vr::Prop_SerialNumber_String );
       std::replace(cur_sn.begin(), cur_sn.end(), '-', '_');
@@ -356,17 +373,19 @@ void VIVEnode::Run()
       // It's a HMD
       if (dev_type == 1)
       {
-        tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "hmd"));
+	//TODO
+        // tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "hmd"));
       }
       // It's a controller
       if (dev_type == 2)
       {
-        tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "controller_"+cur_sn));
+	//TODO
+        // tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "controller_"+cur_sn));
 
         vr::VRControllerState_t state;
         vr_.HandleInput(i, state);
-        sensor_msgs::Joy joy;
-        joy.header.stamp = ros::Time::now();
+        sensor_msgs::msg::Joy joy;
+        joy.header.stamp = ros_clock.now();
         joy.header.frame_id = "controller_"+cur_sn;
         joy.buttons.assign(BUTTON_NUM, 0);
         joy.axes.assign(AXES_NUM, 0.0); // x-axis, y-axis
@@ -386,38 +405,41 @@ void VIVEnode::Run()
 //        #include <bitset> // bit debug
 //        std::cout << static_cast<std::bitset<64> >(state.ulButtonPressed) << std::endl;
 //        std::cout << static_cast<std::bitset<64> >(state.ulButtonTouched) << std::endl;
-        if(button_states_pubs_map.count(cur_sn) == 0){
-          button_states_pubs_map[cur_sn] = nh_.advertise<sensor_msgs::Joy>("/vive/controller_"+cur_sn+"/joy", 10);
-        }
-        button_states_pubs_map[cur_sn].publish(joy);
+	//TODO
+        //if(button_states_pubs_map.count(cur_sn) == 0){
+	//button_states_pubs_map[cur_sn] = nh_.advertise<sensor_msgs::Joy>("/vive/controller_"+cur_sn+"/joy", 10);
+	//}
+        //button_states_pubs_map[cur_sn].publish(joy);
       }
       // It's a tracker
       if (dev_type == 3)
       {
-        tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "tracker_"+cur_sn));
+	//TODO
+        //tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "tracker_"+cur_sn));
       }
       // It's a lighthouse
       if (dev_type == 4)
       {
-        tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "lighthouse_"+cur_sn));
+	//TODO
+	//tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "lighthouse_"+cur_sn));
       }
 
     }
 
     // Publish corrective transform
-    tf::Transform tf_world;
-    tf_world.setOrigin(tf::Vector3(world_offset_[0], world_offset_[1], world_offset_[2]));
-    tf::Quaternion quat_world;
-    quat_world.setRPY(M_PI/2, 0, world_yaw_);
-    tf_world.setRotation(quat_world);
-
-    tf_broadcaster_.sendTransform(tf::StampedTransform(tf_world, ros::Time::now(), "world", "world_vive"));
+    //TODO//
+    //tf::Transform tf_world;
+    //tf_world.setOrigin(tf::Vector3(world_offset_[0], world_offset_[1], world_offset_[2]));
+    //tf::Quaternion quat_world;
+    //quat_world.setRPY(M_PI/2, 0, world_yaw_);
+    //tf_world.setRotation(quat_world);
+    //tf_broadcaster_.sendTransform(tf::StampedTransform(tf_world, ros::Time::now(), "world", "world_vive"));
 
     // Publish twist messages for controller1 and controller2
     double lin_vel[3], ang_vel[3];
     if (vr_.GetDeviceVel(0, lin_vel, ang_vel))
     {
-        geometry_msgs::Twist twist_msg;
+        geometry_msgs::msg::Twist twist_msg;
         twist_msg.linear.x = lin_vel[0];
         twist_msg.linear.y = lin_vel[1];
         twist_msg.linear.z = lin_vel[2];
@@ -425,19 +447,19 @@ void VIVEnode::Run()
         twist_msg.angular.y = ang_vel[1];
         twist_msg.angular.z = ang_vel[2];
 
-        geometry_msgs::TwistStamped twist_msg_stamped;
-        twist_msg_stamped.header.stamp = ros::Time::now();
+        geometry_msgs::msg::TwistStamped twist_msg_stamped;
+        twist_msg_stamped.header.stamp = ros_clock.now();
         twist_msg_stamped.header.frame_id = "world_vive";
         twist_msg_stamped.twist = twist_msg;
 
-        twist0_pub_.publish(twist_msg_stamped);
+        twist0_pub_->publish(twist_msg_stamped);
      
         // std::cout<<"HMD:";
         // std::cout<<twist_msg_stamped;
     }
     if (vr_.GetDeviceVel(1, lin_vel, ang_vel))
     {
-        geometry_msgs::Twist twist_msg;
+        geometry_msgs::msg::Twist twist_msg;
         twist_msg.linear.x = lin_vel[0];
         twist_msg.linear.y = lin_vel[1];
         twist_msg.linear.z = lin_vel[2];
@@ -445,19 +467,19 @@ void VIVEnode::Run()
         twist_msg.angular.y = ang_vel[1];
         twist_msg.angular.z = ang_vel[2];
 
-        geometry_msgs::TwistStamped twist_msg_stamped;
-        twist_msg_stamped.header.stamp = ros::Time::now();
+        geometry_msgs::msg::TwistStamped twist_msg_stamped;
+        twist_msg_stamped.header.stamp = ros_clock.now();
         twist_msg_stamped.header.frame_id = "world_vive";
         twist_msg_stamped.twist = twist_msg;
 
-        twist1_pub_.publish(twist_msg_stamped);
+        twist1_pub_->publish(twist_msg_stamped);
      
         // std::cout<<"Controller 1:";
         // std::cout<<twist_msg_stamped;
     }
     if (vr_.GetDeviceVel(2, lin_vel, ang_vel))
     {
-        geometry_msgs::Twist twist_msg;
+        geometry_msgs::msg::Twist twist_msg;
         twist_msg.linear.x = lin_vel[0];
         twist_msg.linear.y = lin_vel[1];
         twist_msg.linear.z = lin_vel[2];
@@ -465,12 +487,12 @@ void VIVEnode::Run()
         twist_msg.angular.y = ang_vel[1];
         twist_msg.angular.z = ang_vel[2];
 
-        geometry_msgs::TwistStamped twist_msg_stamped;
-        twist_msg_stamped.header.stamp = ros::Time::now();
+        geometry_msgs::msg::TwistStamped twist_msg_stamped;
+        twist_msg_stamped.header.stamp = ros_clock.now();
         twist_msg_stamped.header.frame_id = "world_vive";
         twist_msg_stamped.twist = twist_msg;
 
-        twist2_pub_.publish(twist_msg_stamped);
+        twist2_pub_->publish(twist_msg_stamped);
      
         // std::cout<<"Controller 2:";
         // std::cout<<twist_msg_stamped;
@@ -533,7 +555,7 @@ void VIVEnode::infoCb_R(const sensor_msgs::CameraInfoConstPtr& msg){
 // Main
 int main(int argc, char** argv){
   signal(SIGINT, mySigintHandler);
-  ros::init(argc, argv, "vive_node");
+  rclcpp::init(argc, argv);
 
 #ifdef USE_IMAGE
   VIVEnode nodeApp(90); // VIVE display max fps
@@ -547,7 +569,6 @@ int main(int argc, char** argv){
   
   nodeApp.Run();
   nodeApp.Shutdown();
-  
 
   return 0;
 };

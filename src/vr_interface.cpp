@@ -53,13 +53,17 @@ bool VRInterface::Init()
 {
   // Loading the SteamVR Runtime
   vr::EVRInitError eError = vr::VRInitError_None;
-  
-  pHMD_ = vr::VR_Init( &eError, vr::VRApplication_Background );
-
+  std::cerr << "a0" << std::endl;
+  pHMD_ = vr::VR_Init( &eError, vr::VRApplication_Scene );
+  //pHMD_ = vr::VR_Init( &eError, vr::VRApplication_Background );
+  std::cerr << "a1" << std::endl;
   if (eError != vr::VRInitError_None)
   {
+    std::cerr << "b0" << std::endl;
     pHMD_ = NULL;
-    std::string err_msg = "VR_Init Failed. EVRInitError = "+eError;
+    //std::string err_msg = "VR_Init Failed. EVRInitError = "+eError;
+    std::string err_msg(vr::VR_GetVRInitErrorAsEnglishDescription( eError ));
+    std::cerr << err_msg << std::endl;
     error_(err_msg);
     return false;
   }
@@ -70,7 +74,7 @@ bool VRInterface::Init()
   //~ info_("Device: " + strDriver_ + ", " + strDisplay_);
   
   //~ pHMD_->ResetSeatedZeroPose();
-  
+  std::cerr << "c0" << std::endl;
   UpdateCalibration();
 
   return true;
