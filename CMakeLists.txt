@@ -88,6 +88,7 @@ find_library(OPENVR_LIBRARIES
 )
 set(OPENVR_INCLUDE_DIR ${OPENVR_DIR}/include/openvr ${OPENVR_SRC}/samples)
 set(OPENVR_FOUND TRUE)
+##add_definitions(-DOPENVR_BUILD_STATIC)##
 
 ## OpenGL / GLU
 find_package(OpenGL REQUIRED)
@@ -149,6 +150,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -175,7 +177,6 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-message("############ ADD executable ############")
 file(GLOB SHARED_SRC_FILES
   ${SHARED_SRC_DIR}/*.cpp
   ${SHARED_SRC_DIR}/*.h
@@ -192,24 +193,33 @@ include_directories(
 
 add_executable(test_openvr
   ${SHARED_SRC_FILES}
-  src/vive_node.cpp
+  src/vive_node_no_image.cpp
   src/vr_interface.cpp
   )
+#add_executable(test_openvr
+#  src/no_ros.cpp
+#  )
 
-target_link_libraries(test_openvr ${Boost_LIBRARIES})
+message("OPENGL: ${OPENGL_LIBRARIES}")
+message("GLEW: ${GLEW_LIBRARIES}")
+message("SDL2: ${SDL2_LIBRARIES}")
+message("OPENVR: ${OPENVR_LIBRARIES}")
+target_link_libraries(test_openvr ${Boost_LIBRARIES}
+				  ${OPENGL_LIBRARIES}
+				  ${GLEW_LIBRARIES}
+				  ${SDL2_LIBRARIES}
+				  ${OPENVR_LIBRARIES}
+				  )
 
 ament_target_dependencies(test_openvr
 rclcpp
 std_msgs
+std_srvs
 image_transport
 cv_bridge
 geometry_msgs
 tf2_ros
 tf2_eigen
-OPENGL
-GLEW
-SDL2
-OPENVR
 )
 
 install(TARGETS
