@@ -193,7 +193,7 @@ include_directories(
 
 add_executable(test_openvr
   ${SHARED_SRC_FILES}
-  src/vive_node_no_image.cpp
+  src/vive_node_w_image.cpp
   src/vr_interface.cpp
   )
 #add_executable(test_openvr
@@ -204,12 +204,13 @@ message("OPENGL: ${OPENGL_LIBRARIES}")
 message("GLEW: ${GLEW_LIBRARIES}")
 message("SDL2: ${SDL2_LIBRARIES}")
 message("OPENVR: ${OPENVR_LIBRARIES}")
-target_link_libraries(test_openvr ${Boost_LIBRARIES}
-				  ${OPENGL_LIBRARIES}
-				  ${GLEW_LIBRARIES}
-				  ${SDL2_LIBRARIES}
-				  ${OPENVR_LIBRARIES}
-				  )
+target_link_libraries(test_openvr
+  ${Boost_LIBRARIES}
+  ${OPENGL_LIBRARIES}
+  ${GLEW_LIBRARIES}
+  ${SDL2_LIBRARIES}
+  ${OPENVR_LIBRARIES}
+  )
 
 ament_target_dependencies(test_openvr
 rclcpp
