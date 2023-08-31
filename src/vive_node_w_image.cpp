@@ -11,10 +11,11 @@
 #include <geometry_msgs/msg/twist_stamped.hpp>
 #include "vive_ros/vr_interface.h"
 
-using namespace std;
 using std::placeholders::_1;
 using std::placeholders::_2;
 using std::placeholders::_3;
+
+using namespace std;
 
 //void handleDebugMessages(const std::string &msg) {ROS_DEBUG(" [VIVE] %s",msg.c_str());}
 //void handleInfoMessages(const std::string &msg) {ROS_INFO(" [VIVE] %s",msg.c_str());}
@@ -178,9 +179,8 @@ class VIVEnode
     bool Init();
     void Run();
     void Shutdown();
-    void setOriginCB(const std::shared_ptr<rmw_request_id_t> request_header,
-                     const std::shared_ptr<std_srvs::srv::Empty::Request> &req,
-                     const std::shared_ptr<std_srvs::srv::Empty::Response> &res);
+    void setOriginCB(const std::shared_ptr<std_srvs::srv::Empty::Request> ,
+                           std::shared_ptr<std_srvs::srv::Empty::Response> );
     void set_feedback(const sensor_msgs::msg::JoyFeedback &msg);
     //ros::NodeHandle nh_;
     rclcpp::Node::SharedPtr ros2node;
@@ -205,7 +205,7 @@ class VIVEnode
     tf2_ros::TransformBroadcaster *tf_broadcaster_;
     //tf2_ros::TransformListener tf_listener_;
 
-    //ros::ServiceServer set_origin_server_;
+    rclcpp::Service<std_srvs::srv::Empty>::SharedPtr set_origin_server_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist0_pub_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist1_pub_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist2_pub_;
@@ -222,11 +222,15 @@ VIVEnode::VIVEnode(int rate)
 {
     ros2node = rclcpp::Node::make_shared("vive_node");
     tf_broadcaster_ = new tf2_ros::TransformBroadcaster(ros2node);
-
-    //nh_.getParam("/vive/world_offset", world_offset_);
-    //nh_.getParam("/vive/world_yaw", world_yaw_);
+    if (ros2node->has_parameter("/vive/world_offset")) {
+        world_offset_ = ros2node->get_parameter("/vive/world_offset").as_double_array();
+    }
+    if (ros2node->has_parameter("/vive/world_yaw")) {
+        world_yaw_ = ros2node->get_parameter("/vive/world_yaw").as_double();
+    }
     //ROS_INFO(" [VIVE] World offset: [%2.3f , %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
-    //set_origin_server_ = nh_.advertiseService("/vive/set_origin", &VIVEnode::setOriginCB, this);
+    set_origin_server_ = ros2node->create_service<std_srvs::srv::Empty>("/vive/set_origin",
+                                                                        std::bind(&VIVEnode::setOriginCB, this, _1, _2));
     twist0_pub_ = ros2node->create_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist0", 10);
     twist1_pub_ = ros2node->create_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist1", 10);
     twist2_pub_ = ros2node->create_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist2", 10);
@@ -275,12 +279,9 @@ void VIVEnode::Shutdown()
 {
   vr_.Shutdown();
 }
-
-void VIVEnode::setOriginCB(const std::shared_ptr<rmw_request_id_t> request_header,
-                           const std::shared_ptr<std_srvs::srv::Empty::Request> &req,
-                           const std::shared_ptr<std_srvs::srv::Empty::Response> &res)
+void VIVEnode::setOriginCB(const std::shared_ptr<std_srvs::srv::Empty::Request> ,
+                                 std::shared_ptr<std_srvs::srv::Empty::Response> )
 {
-#if 0 // TODO
   double tf_matrix[3][4];
   int index = 1, dev_type;
   while (dev_type != 2)
@@ -289,38 +290,60 @@ void VIVEnode::setOriginCB(const std::shared_ptr<rmw_request_id_t> request_heade
   }
   if (dev_type == 0)
   {
-    // TODO
-    ROS_WARN(" [VIVE] Coulnd't find controller 1.");
-    return false;
+    //ROS_WARN(" [VIVE] Coulnd't find controller 1.");
+    return;
   }
 
-  tf::Matrix3x3 rot_matrix(tf_matrix[0][0], tf_matrix[0][1], tf_matrix[0][2],
-                           tf_matrix[1][0], tf_matrix[1][1], tf_matrix[1][2],
-                           tf_matrix[2][0], tf_matrix[2][1], tf_matrix[2][2]);
-  tf::Vector3 c_z;
-  c_z = rot_matrix*tf::Vector3(0,0,1);
+  //tf::Matrix3x3 rot_matrix(tf_matrix[0][0], tf_matrix[0][1], tf_matrix[0][2],
+  //                         tf_matrix[1][0], tf_matrix[1][1], tf_matrix[1][2],
+  //                         tf_matrix[2][0], tf_matrix[2][1], tf_matrix[2][2]);
+  //tf::Vector3 c_z;
+  Eigen::Vector3d c_z;
+  Eigen::Matrix3d rot_matrix;
+  rot_matrix << tf_matrix[0][0], tf_matrix[0][1], tf_matrix[0][2],
+                tf_matrix[1][0], tf_matrix[1][1], tf_matrix[1][2],
+                tf_matrix[2][0], tf_matrix[2][1], tf_matrix[2][2];
+  c_z = rot_matrix * Eigen::Vector3d(0,0,1);
   c_z[1] = 0;
   c_z.normalize();
-  double new_yaw = acos(tf::Vector3(0,0,1).dot(c_z)) + M_PI_2;
+  double new_yaw = acos(Eigen::Vector3d(0,0,1).dot(c_z)) + M_PI/2;
   if (c_z[0] < 0) new_yaw = -new_yaw;
   world_yaw_ = -new_yaw;
 
-  tf::Vector3 new_offset;
-  tf::Matrix3x3 new_rot;
-  new_rot.setRPY(0, 0, world_yaw_);
-  new_offset = new_rot*tf::Vector3(-tf_matrix[0][3], tf_matrix[2][3], -tf_matrix[1][3]);
+  //tf::Vector3 new_offset;
+  //tf::Matrix3x3 new_rot;
+  Eigen::Vector3d new_offset;
+  Eigen::Matrix3d new_rot(Eigen::AngleAxisd(world_yaw_, Eigen::Vector3d::UnitZ()));
+  //new_rot.setRPY(0, 0, world_yaw_);
+  new_offset = new_rot * Eigen::Vector3d(-tf_matrix[0][3], tf_matrix[2][3], -tf_matrix[1][3]);
 
   world_offset_[0] = new_offset[0];
   world_offset_[1] = new_offset[1];
   world_offset_[2] = new_offset[2];
 
-  nh_.setParam("/vive/world_offset", world_offset_);
-  nh_.setParam("/vive/world_yaw", world_yaw_);
-  ROS_INFO(" [VIVE] New world offset: [%2.3f , %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
-#endif
+  //nh_.setParam("/vive/world_offset", world_offset_);
+  //nh_.setParam("/vive/world_yaw", world_yaw_);
+  //ROS_INFO(" [VIVE] New world offset: [%2.3f , %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
+  {
+      rclcpp::ParameterValue val(world_offset_);
+      if (ros2node->has_parameter("/vive/world_offset")) {
+          rclcpp::Parameter pp("/vive/world_offset", val);
+          ros2node->set_parameter(pp);
+      } else {
+          ros2node->declare_parameter("/vive/world_offset", val);
+      }
+  }
+  {
+      rclcpp::ParameterValue val(world_yaw_);
+      if (ros2node->has_parameter("/vive/world_yaw")) {
+          rclcpp::Parameter pp("/vive/world_yaw", val);
+          ros2node->set_parameter(pp);
+      } else {
+          ros2node->declare_parameter("/vive/world_yaw", val);
+      }
+  }
   //return true;
 }
-
 void VIVEnode::set_feedback(const sensor_msgs::msg::JoyFeedback &msg) {
   if(msg.type == 1 /* TYPE_RUMBLE */) {
     vr_.TriggerHapticPulse(msg.id, 0, (int)(msg.intensity));
@@ -352,16 +375,6 @@ void VIVEnode::Run()
       // No device
       if (dev_type == 0) continue;
 
-      //tf2::Transform tf;
-      //tf.setOrigin(tf::Vector3(tf_matrix[0][3], tf_matrix[1][3], tf_matrix[2][3]));
-
-      //tf2::Quaternion quat;
-      //tf2::Matrix3x3 rot_matrix(tf_matrix[0][0], tf_matrix[0][1], tf_matrix[0][2],
-      //tf_matrix[1][0], tf_matrix[1][1], tf_matrix[1][2],
-      //tf_matrix[2][0], tf_matrix[2][1], tf_matrix[2][2]);
-
-      //rot_matrix.getRotation(quat);
-      //tf.setRotation(quat);
       Eigen::Translation3d trans(tf_matrix[0][3], tf_matrix[1][3], tf_matrix[2][3]);
       Eigen::Matrix3d mat;
       mat << tf_matrix[0][0], tf_matrix[0][1], tf_matrix[0][2],
@@ -375,13 +388,21 @@ void VIVEnode::Run()
       // It's a HMD
       if (dev_type == 1)
       {
-        //TODO
-        // tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "hmd"));
+        geometry_msgs::msg::TransformStamped tmp_tf = tf2::eigenToTransform(tf);
+        tmp_tf.header.stamp = ros_clock.now();
+        tmp_tf.header.frame_id = "world_vive";
+        tmp_tf.child_frame_id = "hmd";
+        tf_broadcaster_->sendTransform(tmp_tf);
+        //tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "hmd"));
       }
       // It's a controller
       if (dev_type == 2)
       {
-        //TODO
+        geometry_msgs::msg::TransformStamped tmp_tf = tf2::eigenToTransform(tf);
+        tmp_tf.header.stamp = ros_clock.now();
+        tmp_tf.header.frame_id = "world_vive";
+        tmp_tf.child_frame_id = "controller_"+cur_sn;
+        tf_broadcaster_->sendTransform(tmp_tf);
         // tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "controller_"+cur_sn));
 
         vr::VRControllerState_t state;
@@ -416,26 +437,44 @@ void VIVEnode::Run()
       // It's a tracker
       if (dev_type == 3)
       {
-        //TODO
+        geometry_msgs::msg::TransformStamped tmp_tf = tf2::eigenToTransform(tf);
+        tmp_tf.header.stamp = ros_clock.now();
+        tmp_tf.header.frame_id = "world_vive";
+        tmp_tf.child_frame_id = "tracker_"+cur_sn;
+        tf_broadcaster_->sendTransform(tmp_tf);
         //tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "tracker_"+cur_sn));
       }
       // It's a lighthouse
       if (dev_type == 4)
       {
-        //TODO
+        geometry_msgs::msg::TransformStamped tmp_tf = tf2::eigenToTransform(tf);
+        tmp_tf.header.stamp = ros_clock.now();
+        tmp_tf.header.frame_id = "world_vive";
+        tmp_tf.child_frame_id = "lighthouse_"+cur_sn;
+        tf_broadcaster_->sendTransform(tmp_tf);
         //tf_broadcaster_.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "world_vive", "lighthouse_"+cur_sn));
       }
 
     }
     // Publish corrective transform
-    //TODO//
     //tf::Transform tf_world;
     //tf_world.setOrigin(tf::Vector3(world_offset_[0], world_offset_[1], world_offset_[2]));
     //tf::Quaternion quat_world;
     //quat_world.setRPY(M_PI/2, 0, world_yaw_);
     //tf_world.setRotation(quat_world);
+    {
+    Eigen::Translation3d trans(world_offset_[0], world_offset_[1], world_offset_[2]);
+    Eigen::Quaterniond quat_world(Eigen::AngleAxisd(M_PI/2, Eigen::Vector3d::UnitX())
+                                  * Eigen::AngleAxisd(world_yaw_, Eigen::Vector3d::UnitZ()));
+    //quat_world.setRPY(M_PI/2, 0, world_yaw_);
+    Eigen::Isometry3d tf_world (trans * quat_world);
+    geometry_msgs::msg::TransformStamped tmp_tf = tf2::eigenToTransform(tf_world);
+    tmp_tf.header.stamp = ros_clock.now();
+    tmp_tf.header.frame_id = "world";
+    tmp_tf.child_frame_id = "world_vive";
+    tf_broadcaster_->sendTransform(tmp_tf);
     //tf_broadcaster_.sendTransform(tf::StampedTransform(tf_world, ros::Time::now(), "world", "world_vive"));
-
+    }
     // Publish twist messages for controller1 and controller2
     double lin_vel[3], ang_vel[3];
     if (vr_.GetDeviceVel(0, lin_vel, ang_vel))
