@@ -1,0 +1,74 @@
+diff --git a/cv_bridge/CMakeLists.txt b/cv_bridge/CMakeLists.txt
+index c909dd1..ce1cc7b 100644
+--- a/cv_bridge/CMakeLists.txt
++++ b/cv_bridge/CMakeLists.txt
+@@ -28,8 +28,8 @@ else()
+     find_package(Boost REQUIRED COMPONENTS python3)
+     set(boost_python_target "Boost::python3")
+   else()
+-    find_package(Boost REQUIRED COMPONENTS python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR})
+-    set(boost_python_target "Boost::python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}")
++    #find_package(Boost REQUIRED COMPONENTS python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR})
++    #set(boost_python_target "Boost::python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}")
+   endif()
+ endif()
+ 
+@@ -54,9 +54,9 @@ if(NOT OpenCV_FOUND)
+ endif()
+ 
+ if(NOT ANDROID)
+-  ament_python_install_package(${PROJECT_NAME}
+-    PACKAGE_DIR python/${PROJECT_NAME}
+-  )
++#  ament_python_install_package(${PROJECT_NAME}
++#    PACKAGE_DIR python/${PROJECT_NAME}
++#  )
+ endif()
+ 
+ add_subdirectory(src)
+diff --git a/cv_bridge/src/CMakeLists.txt b/cv_bridge/src/CMakeLists.txt
+index a28fec3..978f4e5 100644
+--- a/cv_bridge/src/CMakeLists.txt
++++ b/cv_bridge/src/CMakeLists.txt
+@@ -24,22 +24,22 @@ install(TARGETS ${PROJECT_NAME} EXPORT export_${PROJECT_NAME}
+ install(FILES
+   ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}/${PROJECT_NAME}_export.h
+   DESTINATION include/${PROJECT_NAME}/${PROJECT_NAME})
+-
+-if(NOT ANDROID)
+-  Python3_add_library(${PROJECT_NAME}_boost MODULE module.cpp module_opencv3.cpp)
+-  target_link_libraries(${PROJECT_NAME}_boost PRIVATE
+-    ${PROJECT_NAME}
+-    ${boost_python_target}
+-    Python3::NumPy)
+-  target_compile_definitions(${PROJECT_NAME}_boost PRIVATE PYTHON3)
+-
+-  if(OpenCV_VERSION_MAJOR VERSION_EQUAL 4)
+-    target_compile_definitions(${PROJECT_NAME}_boost PRIVATE OPENCV_VERSION_4)
+-  endif()
+-
+-  set_target_properties(${PROJECT_NAME}_boost PROPERTIES
+-                        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/boost/
+-                        PREFIX ""
+-  )
+-  install(TARGETS ${PROJECT_NAME}_boost DESTINATION ${PYTHON_INSTALL_DIR}/${PROJECT_NAME}/boost/)
+-endif()
++## exclude python
++##if(NOT ANDROID)
++##  Python3_add_library(${PROJECT_NAME}_boost MODULE module.cpp module_opencv3.cpp)
++##  target_link_libraries(${PROJECT_NAME}_boost PRIVATE
++##    ${PROJECT_NAME}
++##    ${boost_python_target}
++##    Python3::NumPy)
++##  target_compile_definitions(${PROJECT_NAME}_boost PRIVATE PYTHON3)
++##
++##  if(OpenCV_VERSION_MAJOR VERSION_EQUAL 4)
++##    target_compile_definitions(${PROJECT_NAME}_boost PRIVATE OPENCV_VERSION_4)
++##  endif()
++##
++##  set_target_properties(${PROJECT_NAME}_boost PROPERTIES
++##                        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/boost/
++##                        PREFIX ""
++##  )
++##  install(TARGETS ${PROJECT_NAME}_boost DESTINATION ${PYTHON_INSTALL_DIR}/${PROJECT_NAME}/boost/)
++##endif()
