@@ -30,6 +30,7 @@ void mySigintHandler(int sig){
 //ros::shutdown();
 }
 
+//#define PUBLISH_TWIST
 #define USE_IMAGE
 
 #define USE_OPENGL
@@ -66,8 +67,8 @@ class CMainApplicationMod : public CMainApplication{
     int RenderFrame_hz_count;
 
     void InitTextures(){
-      ros_img[L] = cv::Mat(cv::Size(640, 480), CV_8UC3, CV_RGB(255,0,0));
-      ros_img[R] = cv::Mat(cv::Size(640, 480), CV_8UC3, CV_RGB(0,255,0));
+      ros_img[L] = cv::Mat(cv::Size(m_nRenderWidth, m_nRenderHeight), CV_8UC3, CV_RGB(255,0,0));
+      ros_img[R] = cv::Mat(cv::Size(m_nRenderWidth, m_nRenderHeight), CV_8UC3, CV_RGB(0,255,0));
       hmd_panel_img[L] = cv::Mat(cv::Size(m_nRenderWidth, m_nRenderHeight), CV_8UC3, CV_RGB(100,100,100));
       hmd_panel_img[R] = cv::Mat(cv::Size(m_nRenderWidth, m_nRenderHeight), CV_8UC3, CV_RGB(100,100,100));
       for ( int i = 0; i < vr::k_unMaxTrackedDeviceCount; i++){
@@ -110,8 +111,8 @@ class CMainApplicationMod : public CMainApplication{
   private:
     cv::Mat hmd_panel_img[LR];
     cv::Mat ros_img_resized[LR];
-    void processROSStereoImage(cv::Mat (&in)[LR], cv::Mat (&out)[LR]){
-      const double hmd_eye2panel_z[XY] = { (double)out[L].rows/2/tan(hmd_fov/2), (double)out[L].rows/2/tan(hmd_fov/2) };
+    void processROSStereoImage(cv::Mat (&in)[LR], cv::Mat (&out)[LR]){ // in:ros_img, out:hmd_panel_img
+      const double hmd_eye2panel_z[XY] = { (double)out[L].cols/2/tan(hmd_fov/2), (double)out[L].rows/2/tan(hmd_fov/2) };
       const double cam_pic_size[LR][XY] = { { (double)in[L].cols, (double)in[L].rows }, { (double)in[R].cols, (double)in[R].rows } };
       double cam_fov[LR][XY];
       int cam_pic_size_on_hmd[LR][XY];
@@ -120,7 +121,7 @@ class CMainApplicationMod : public CMainApplication{
         //ROS_INFO_THROTTLE(3.0,"Process ROS image[%d] (%dx%d) with fov (%dx%d) to (%dx%d)", i, in[i].cols, in[i].rows, (int)cam_f[i][X], (int)cam_f[i][Y], out[i].cols, out[i].rows);
         for(int j=0;j<XY;j++){
           cam_fov[i][j] = 2 * atan( cam_pic_size[i][j]/2 / cam_f[i][j] );
-          cam_pic_size_on_hmd[i][j] = (int)( hmd_eye2panel_z[X] * 2 * tan(cam_fov[i][j]/2) );
+          cam_pic_size_on_hmd[i][j] = (int)( hmd_eye2panel_z[j] * 2 * tan(cam_fov[i][j]/2) );
         }
         cv::resize(in[i], ros_img_resized[i], cv::Size(cam_pic_size_on_hmd[i][X], cam_pic_size_on_hmd[i][Y]));
         cv::flip(ros_img_resized[i], ros_img_resized[i], 0);
@@ -148,7 +149,11 @@ class CMainApplicationMod : public CMainApplication{
         int cur_tex_w,cur_tex_h;
         glGetTexLevelParameteriv( GL_TEXTURE_2D , 0 , GL_TEXTURE_WIDTH , &cur_tex_w );
         glGetTexLevelParameteriv( GL_TEXTURE_2D , 0 , GL_TEXTURE_HEIGHT , &cur_tex_h );
-        glTexSubImage2D( GL_TEXTURE_2D, 0, cur_tex_w/2 - hmd_panel_img[i].cols/2, cur_tex_h/2 - hmd_panel_img[i].rows/2, hmd_panel_img[i].cols, hmd_panel_img[i].rows, GL_RGB, GL_UNSIGNED_BYTE, hmd_panel_img[i].data );
+        glTexSubImage2D( GL_TEXTURE_2D, 0, cur_tex_w/2 - hmd_panel_img[i].cols/2,
+                                           cur_tex_h/2 - hmd_panel_img[i].rows/2,
+                                           hmd_panel_img[i].cols,
+                                           hmd_panel_img[i].rows,
+                                           GL_RGB, GL_UNSIGNED_BYTE, hmd_panel_img[i].data );
 //        glGenerateMipmap(GL_TEXTURE_2D);
         glBindTexture( GL_TEXTURE_2D, 0 );
       }
@@ -187,14 +192,15 @@ class VIVEnode
     VRInterface vr_;
 
 #ifdef USE_IMAGE
-    void imageCb_L(const sensor_msgs::msg::Image::ConstSharedPtr &msg);
-    void imageCb_R(const sensor_msgs::msg::Image::ConstSharedPtr &msg);
-    void infoCb_L(const sensor_msgs::msg::CameraInfo &msg);
-    void infoCb_R(const sensor_msgs::msg::CameraInfo &msg);
+    void imagesVerticalCb(const sensor_msgs::msg::Image::ConstSharedPtr &msg);
+    void infoCb(const sensor_msgs::msg::CameraInfo &msg);
+
     CMainApplicationMod *pMainApplication;
-    image_transport::Subscriber sub_L,sub_R;
+    //image_transport::Subscriber sub_L,sub_R;
     //ros::Subscriber sub_i_L,sub_i_R;
-    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_i_L,sub_i_R;
+    //rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_i_L,sub_i_R;
+    image_transport::Subscriber sub_V;
+    rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_i_V;
 #endif
 
   private:
@@ -206,9 +212,11 @@ class VIVEnode
     //tf2_ros::TransformListener tf_listener_;
 
     rclcpp::Service<std_srvs::srv::Empty>::SharedPtr set_origin_server_;
+#ifdef PUBLISH_TWIST
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist0_pub_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist1_pub_;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist2_pub_;
+#endif
     rclcpp::Subscription<sensor_msgs::msg::JoyFeedback>::SharedPtr feedback_sub_;
     //std::map<std::string, ros::Publisher> button_states_pubs_map;
 };
@@ -231,19 +239,19 @@ VIVEnode::VIVEnode(int rate)
     //ROS_INFO(" [VIVE] World offset: [%2.3f , %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
     set_origin_server_ = ros2node->create_service<std_srvs::srv::Empty>("/vive/set_origin",
                                                                         std::bind(&VIVEnode::setOriginCB, this, _1, _2));
+#ifdef PUBLISH_TWIST
     twist0_pub_ = ros2node->create_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist0", 10);
     twist1_pub_ = ros2node->create_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist1", 10);
     twist2_pub_ = ros2node->create_publisher<geometry_msgs::msg::TwistStamped>("/vive/twist2", 10);
+#endif
     feedback_sub_ = ros2node->create_subscription<sensor_msgs::msg::JoyFeedback>("/vive/set_feedback", 10,
                                                                                  std::bind(&VIVEnode::set_feedback, this, _1));
 #ifdef USE_IMAGE
   image_transport::ImageTransport it(ros2node);
   //sub_L = it.subscribe("/image_left", 1, &VIVEnode::imageCb_L, this);
   //sub_R = it.subscribe("/image_right", 1, &VIVEnode::imageCb_R, this);
-  sub_L = it.subscribe("/image_left",  1, std::bind(&VIVEnode::imageCb_L, this, _1));
-  sub_R = it.subscribe("/image_right", 1, std::bind(&VIVEnode::imageCb_R, this, _1));
-  sub_i_L = ros2node->create_subscription<sensor_msgs::msg::CameraInfo>("/camera_info_left",  1, std::bind(&VIVEnode::infoCb_L, this, _1));
-  sub_i_R = ros2node->create_subscription<sensor_msgs::msg::CameraInfo>("/camera_info_right", 1, std::bind(&VIVEnode::infoCb_R, this, _1));
+  sub_V = it.subscribe("images",  1, std::bind(&VIVEnode::imagesVerticalCb, this, _1));
+  sub_i_V = ros2node->create_subscription<sensor_msgs::msg::CameraInfo>("camera_info",  1, std::bind(&VIVEnode::infoCb, this, _1));
   pMainApplication = new CMainApplicationMod( 0, NULL );
   if (!pMainApplication->BInit()){
     pMainApplication->Shutdown();
@@ -475,6 +483,7 @@ void VIVEnode::Run()
     tf_broadcaster_->sendTransform(tmp_tf);
     //tf_broadcaster_.sendTransform(tf::StampedTransform(tf_world, ros::Time::now(), "world", "world_vive"));
     }
+#ifdef PUBLISH_TWIST
     // Publish twist messages for controller1 and controller2
     double lin_vel[3], ang_vel[3];
     if (vr_.GetDeviceVel(0, lin_vel, ang_vel))
@@ -534,6 +543,8 @@ void VIVEnode::Run()
         // std::cout<<"Controller 2:";
         // std::cout<<twist_msg_stamped;
     }
+#endif
+
 #ifdef USE_IMAGE
     pMainApplication->HandleInput();
     pMainApplication->RenderFrame();
@@ -547,21 +558,17 @@ void VIVEnode::Run()
 }
 
 #ifdef USE_IMAGE
-void VIVEnode::imageCb_L(const sensor_msgs::msg::Image::ConstSharedPtr &msg){
+void VIVEnode::imagesVerticalCb(const sensor_msgs::msg::Image::ConstSharedPtr &msg)
+{
   if(msg->width > 0 && msg->height > 0 ){
     try {
-      pMainApplication->ros_img[L] = cv_bridge::toCvCopy(msg,"rgb8")->image;
-    } catch (cv_bridge::Exception& e) {
-        //ROS_ERROR_THROTTLE(1, "Unable to convert '%s' image for display: '%s'", msg->encoding.c_str(), e.what());
-    }
-  }else{
-      //ROS_WARN_THROTTLE(3, "Invalid image_left size (%dx%d) use default", msg->width, msg->height);
-  }
-}
-void VIVEnode::imageCb_R(const sensor_msgs::msg::Image::ConstSharedPtr &msg){
-  if(msg->width > 0 && msg->height > 0 ){
-    try {
-      pMainApplication->ros_img[R] = cv_bridge::toCvCopy(msg,"rgb8")->image;
+      cv::Mat img_src = cv_bridge::toCvCopy(msg,"rgb8")->image;
+      int width = img_src.cols;
+      int height = img_src.rows/2;
+      cv::Rect l_roi(0,      0, width, height);
+      cv::Rect r_roi(0, height, width, height);
+      pMainApplication->ros_img[L] = img_src(l_roi);
+      pMainApplication->ros_img[R] = img_src(r_roi);
     } catch (cv_bridge::Exception& e) {
         //ROS_ERROR_THROTTLE(1, "Unable to convert '%s' image for display: '%s'", msg->encoding.c_str(), e.what());
     }
@@ -569,20 +576,13 @@ void VIVEnode::imageCb_R(const sensor_msgs::msg::Image::ConstSharedPtr &msg){
       //ROS_WARN_THROTTLE(3, "Invalid image_right size (%dx%d) use default", msg->width, msg->height);
   }
 }
-void VIVEnode::infoCb_L(const sensor_msgs::msg::CameraInfo &msg){
+void VIVEnode::infoCb(const sensor_msgs::msg::CameraInfo &msg)
+{
   if(msg.k[0] > 0.0 && msg.k[4] > 0.0 ){
-    pMainApplication->cam_f[L][0] = msg.k[0];
-    pMainApplication->cam_f[L][1] = msg.k[4];
+    pMainApplication->cam_f[L][0] = pMainApplication->cam_f[R][0] = msg.k[0];
+    pMainApplication->cam_f[L][1] = pMainApplication->cam_f[R][1] = msg.k[4];
   }else{
       //ROS_WARN_THROTTLE(3, "Invalid camera_info_left fov (%fx%f) use default", msg.K[0], msg.K[4]);
-  }
-}
-void VIVEnode::infoCb_R(const sensor_msgs::msg::CameraInfo &msg){
-  if(msg.k[0] > 0.0 && msg.k[4] > 0.0 ){
-    pMainApplication->cam_f[R][0] = msg.k[0];
-    pMainApplication->cam_f[R][1] = msg.k[4];
-  }else{
-      //ROS_WARN_THROTTLE(3, "Invalid camera_info_right fov (%fx%f) use default", msg.K[0], msg.K[4]);
   }
 }
 #endif
