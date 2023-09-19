@@ -1232,6 +1232,46 @@ void CMainApplication::SetupCameras()
   m_mat4ProjectionRight = GetHMDMatrixProjectionEye( vr::Eye_Right );
   m_mat4eyePosLeft = GetHMDMatrixPoseEye( vr::Eye_Left );
   m_mat4eyePosRight = GetHMDMatrixPoseEye( vr::Eye_Right );
+  {
+  std::cerr << "projL" << std::endl;
+  float *buf = m_mat4ProjectionLeft.getTranspose();
+  for(int j = 0; j < 4; j++) {
+  for(int i = 0; i < 4; i++) {
+    std::cerr << buf[i+j*4];
+    if (i != 3) std::cerr << ", ";
+  }
+  std::cerr << std::endl;
+  }}
+  {
+  std::cerr << "projR" << std::endl;
+  float *buf = m_mat4ProjectionRight.getTranspose();
+  for(int j = 0; j < 4; j++) {
+  for(int i = 0; i < 4; i++) {
+    std::cerr << buf[i+j*4];
+    if (i != 3) std::cerr << ", ";
+  }
+  std::cerr << std::endl;
+  }}
+  {
+  std::cerr << "eyeL" << std::endl;
+  float *buf = m_mat4eyePosLeft.getTranspose();
+  for(int j = 0; j < 4; j++) {
+  for(int i = 0; i < 4; i++) {
+    std::cerr << buf[i+j*4];
+    if (i != 3) std::cerr << ", ";
+  }
+  std::cerr << std::endl;
+  }}
+  {
+  std::cerr << "eyeR" << std::endl;
+  float *buf = m_mat4eyePosRight.getTranspose();
+  for(int j = 0; j < 4; j++) {
+  for(int i = 0; i < 4; i++) {
+    std::cerr << buf[i+j*4];
+    if (i != 3) std::cerr << ", ";
+  }
+  std::cerr << std::endl;
+  }}
 }
 
 
