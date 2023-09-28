@@ -250,8 +250,8 @@ VIVEnode::VIVEnode(int rate)
   image_transport::ImageTransport it(ros2node);
   //sub_L = it.subscribe("/image_left", 1, &VIVEnode::imageCb_L, this);
   //sub_R = it.subscribe("/image_right", 1, &VIVEnode::imageCb_R, this);
-  sub_V = it.subscribe("images",  1, std::bind(&VIVEnode::imagesVerticalCb, this, _1));
-  sub_i_V = ros2node->create_subscription<sensor_msgs::msg::CameraInfo>("camera_info",  1, std::bind(&VIVEnode::infoCb, this, _1));
+  sub_V = it.subscribe("scene_camera/images",  1, std::bind(&VIVEnode::imagesVerticalCb, this, _1));
+  sub_i_V = ros2node->create_subscription<sensor_msgs::msg::CameraInfo>("scene_camera/camera_info",  1, std::bind(&VIVEnode::infoCb, this, _1));
   pMainApplication = new CMainApplicationMod( 0, NULL );
   if (!pMainApplication->BInit()){
     pMainApplication->Shutdown();
