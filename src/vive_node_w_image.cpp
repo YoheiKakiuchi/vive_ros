@@ -6,9 +6,15 @@
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <sensor_msgs/msg/joy.hpp>
 #include <sensor_msgs/msg/joy_feedback.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/empty.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
+//
+//#include <opencv2/imgproc/imgproc.hpp>
+//#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgcodecs.hpp>
+//
 #include "vive_ros/vr_interface.h"
 
 using std::placeholders::_1;
@@ -67,6 +73,7 @@ class CMainApplicationMod : public CMainApplication{
     int RenderFrame_hz_count;
 
     void InitTextures(){
+        std::cout << "Render " << m_nRenderWidth << " x " << m_nRenderHeight << std::endl;
       ros_img[L] = cv::Mat(cv::Size(m_nRenderWidth, m_nRenderHeight), CV_8UC3, CV_RGB(255,0,0));
       ros_img[R] = cv::Mat(cv::Size(m_nRenderWidth, m_nRenderHeight), CV_8UC3, CV_RGB(0,255,0));
       hmd_panel_img[L] = cv::Mat(cv::Size(m_nRenderWidth, m_nRenderHeight), CV_8UC3, CV_RGB(100,100,100));
@@ -80,9 +87,12 @@ class CMainApplicationMod : public CMainApplication{
     }
     void RenderFrame(){
       //ros::Time tmp = ros::Time::now();
+      //std::cout << "Rf(in)" << std::endl;
       if ( m_pHMD ){
+        //std::cout << "Rf(HMD)" << std::endl;
         RenderControllerAxes();
         RenderStereoTargets();
+        //std::cout << "Rf(update_texture)" << std::endl;
         UpdateTexturemaps();
         RenderCompanionWindow();
         vr::Texture_t leftEyeTexture = {(void*)(uintptr_t)leftEyeDesc.m_nResolveTextureId, vr::TextureType_OpenGL, vr::ColorSpace_Gamma };
@@ -111,6 +121,17 @@ class CMainApplicationMod : public CMainApplication{
   private:
     cv::Mat hmd_panel_img[LR];
     cv::Mat ros_img_resized[LR];
+    void processROSStereoImage(cv::Mat (&in)[LR], cv::Mat (&out)[LR])
+    {
+        // just resize
+        for(int i=0;i<LR;i++){
+            cv::Mat tmp;
+            cv::resize(in[i], tmp, cv::Size(out[i].cols, out[i].rows));
+            cv::flip(tmp, tmp, 0);
+            tmp.copyTo(out[i]);
+        }
+    }
+#if 0
     void processROSStereoImage(cv::Mat (&in)[LR], cv::Mat (&out)[LR]){ // in:ros_img, out:hmd_panel_img
       const double hmd_eye2panel_z[XY] = { (double)out[L].cols/2/tan(hmd_fov/2), (double)out[L].rows/2/tan(hmd_fov/2) };
       const double cam_pic_size[LR][XY] = { { (double)in[L].cols, (double)in[L].rows }, { (double)in[R].cols, (double)in[R].rows } };
@@ -125,8 +146,10 @@ class CMainApplicationMod : public CMainApplication{
         }
         cv::resize(in[i], ros_img_resized[i], cv::Size(cam_pic_size_on_hmd[i][X], cam_pic_size_on_hmd[i][Y]));
         cv::flip(ros_img_resized[i], ros_img_resized[i], 0);
-        cv::Rect hmd_panel_area_rect( ros_img_resized[i].cols/2-out[i].cols/2, ros_img_resized[i].rows/2-out[i].rows/2, out[i].cols, out[i].rows);
-        cv::Rect ros_img_resized_rect( 0, 0, ros_img_resized[i].cols, ros_img_resized[i].rows);
+        cv::Rect  hmd_panel_area_rect( ros_img_resized[i].cols/2 - out[i].cols/2,
+                                       ros_img_resized[i].rows/2 - out[i].rows/2,
+                                       out[i].cols, out[i].rows);
+        cv::Rect  ros_img_resized_rect( 0, 0, ros_img_resized[i].cols, ros_img_resized[i].rows);
         cv::Point ros_img_resized_center(ros_img_resized[i].cols/2, ros_img_resized[i].rows/2);
         cv::Rect cropped_rect;
         if( !hmd_panel_area_rect.contains( cv::Point(ros_img_resized_rect.x, ros_img_resized_rect.y) )
@@ -139,6 +162,7 @@ class CMainApplicationMod : public CMainApplication{
         ros_img_resized[i].copyTo(out[i](hmd_panel_draw_rect));
       }
     }
+#endif
 
     void UpdateTexturemaps(){
       processROSStereoImage(ros_img, hmd_panel_img);
@@ -154,6 +178,8 @@ class CMainApplicationMod : public CMainApplication{
                                            hmd_panel_img[i].cols,
                                            hmd_panel_img[i].rows,
                                            GL_RGB, GL_UNSIGNED_BYTE, hmd_panel_img[i].data );
+        //std::cout << "img: " << hmd_panel_img[i].cols << " x " << hmd_panel_img[i].rows << std::endl;
+        //std::cout << "tex: " << cur_tex_w << " x " << cur_tex_h << std::endl;
 //        glGenerateMipmap(GL_TEXTURE_2D);
         glBindTexture( GL_TEXTURE_2D, 0 );
       }
@@ -194,6 +220,7 @@ class VIVEnode
 #ifdef USE_IMAGE
     void imagesVerticalCb(const sensor_msgs::msg::Image::ConstSharedPtr &msg);
     void infoCb(const sensor_msgs::msg::CameraInfo &msg);
+    void compressCb(const sensor_msgs::msg::CompressedImage::ConstSharedPtr &msg);
 
     CMainApplicationMod *pMainApplication;
     //image_transport::Subscriber sub_L,sub_R;
@@ -201,6 +228,7 @@ class VIVEnode
     //rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_i_L,sub_i_R;
     image_transport::Subscriber sub_V;
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_i_V;
+    rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr sub_compress;
 #endif
 
   private:
@@ -250,8 +278,13 @@ VIVEnode::VIVEnode(int rate)
   image_transport::ImageTransport it(ros2node);
   //sub_L = it.subscribe("/image_left", 1, &VIVEnode::imageCb_L, this);
   //sub_R = it.subscribe("/image_right", 1, &VIVEnode::imageCb_R, this);
-  sub_V = it.subscribe("scene_camera/images",  1, std::bind(&VIVEnode::imagesVerticalCb, this, _1));
-  sub_i_V = ros2node->create_subscription<sensor_msgs::msg::CameraInfo>("scene_camera/camera_info",  1, std::bind(&VIVEnode::infoCb, this, _1));
+  //sub_V = it.subscribe("scene_camera/images",  1, std::bind(&VIVEnode::imagesVerticalCb, this, _1));
+  //sub_V = it.subscribe("scene_camera/images/compressed",  1, std::bind(&VIVEnode::imagesVerticalCb, this, _1));
+  //sub_V = image_transport::create_subscription(ros2node.get(), "scene_camera/images",
+  //std::bind(&VIVEnode::imagesVerticalCb, this, _1), "compressed");
+  //sub_i_V = ros2node->create_subscription<sensor_msgs::msg::CameraInfo>("scene_camera/camera_info",  1, std::bind(&VIVEnode::infoCb, this, _1));
+  sub_compress = ros2node->create_subscription<sensor_msgs::msg::CompressedImage>("scene_camera/compressed_images",  1,
+                                                                                  std::bind(&VIVEnode::compressCb, this, _1));
   pMainApplication = new CMainApplicationMod( 0, NULL );
   if (!pMainApplication->BInit()){
     pMainApplication->Shutdown();
@@ -547,6 +580,8 @@ void VIVEnode::Run()
 
 #ifdef USE_IMAGE
     pMainApplication->HandleInput();
+    //
+    //std::cout << "Rf;" << std::endl;
     pMainApplication->RenderFrame();
 #endif
 
@@ -563,12 +598,13 @@ void VIVEnode::imagesVerticalCb(const sensor_msgs::msg::Image::ConstSharedPtr &m
   if(msg->width > 0 && msg->height > 0 ){
     try {
       cv::Mat img_src = cv_bridge::toCvCopy(msg,"rgb8")->image;
-      int width = img_src.cols;
+      int width =  img_src.cols;
       int height = img_src.rows/2;
       cv::Rect l_roi(0,      0, width, height);
       cv::Rect r_roi(0, height, width, height);
       pMainApplication->ros_img[L] = img_src(l_roi);
       pMainApplication->ros_img[R] = img_src(r_roi);
+      // std::cout << width << " x " << height << std::endl;
     } catch (cv_bridge::Exception& e) {
         //ROS_ERROR_THROTTLE(1, "Unable to convert '%s' image for display: '%s'", msg->encoding.c_str(), e.what());
     }
@@ -584,6 +620,26 @@ void VIVEnode::infoCb(const sensor_msgs::msg::CameraInfo &msg)
   }else{
       //ROS_WARN_THROTTLE(3, "Invalid camera_info_left fov (%fx%f) use default", msg.K[0], msg.K[4]);
   }
+}
+void VIVEnode::compressCb(const sensor_msgs::msg::CompressedImage::ConstSharedPtr &msg)
+{
+    cv_bridge::CvImagePtr cv_ptr(new cv_bridge::CvImage);
+    cv_ptr->header = msg->header;
+    cv_ptr->image = cv::imdecode(cv::Mat(msg->data), cv::IMREAD_COLOR);
+    cv_ptr->encoding = msg->format; ////
+    try {
+      cv::Mat img_src = cv_ptr->image;
+      int width =  img_src.cols;
+      int height = img_src.rows/2;
+      cv::Rect l_roi(0,      0, width, height);
+      cv::Rect r_roi(0, height, width, height);
+      pMainApplication->ros_img[L] = img_src(l_roi);
+      pMainApplication->ros_img[R] = img_src(r_roi);
+      // std::cout << width << " x " << height << std::endl;
+    } catch (cv_bridge::Exception& e) {
+        //ROS_ERROR_THROTTLE(1, "Unable to convert '%s' image for display: '%s'", msg->encoding.c_str(), e.what());
+    }
+
 }
 #endif
 
