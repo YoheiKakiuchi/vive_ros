@@ -65,8 +65,10 @@ else()
   message(FATAL_ERROR "Unsupported compiler '${CMAKE_CXX_COMPILER_ID}'")
 endif()
 
-###
-set(OPENVR_SRC "c:/Users/jskuser/source/openvr-1.26.7") ## option OPENVR_SRC, OPENVR_DIR
+##
+## check OPENVR_SRC
+##
+set(OPENVR_SRC "c:/builds/openvr-1.26.7") ## option OPENVR_SRC, OPENVR_DIR
 set(OPENVR_DIR "c:/local/openvr")
 set(THIRDPARTY_DIR ${OPENVR_SRC}/samples/thirdparty)
 set(SHARED_SRC_DIR ${OPENVR_SRC}/samples/shared)
@@ -193,7 +195,7 @@ include_directories(
 
 add_executable(test_openvr
   ${SHARED_SRC_FILES}
-  src/vive_node_w_image.cpp
+  src/vive_node_w_image2.cpp
   src/vr_interface.cpp
   )
 #add_executable(test_openvr
