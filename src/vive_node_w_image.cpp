@@ -17,6 +17,8 @@
 //
 #include "vive_ros/vr_interface.h"
 
+#include <mutex>
+
 using std::placeholders::_1;
 using std::placeholders::_2;
 using std::placeholders::_3;
@@ -71,7 +73,6 @@ class CMainApplicationMod : public CMainApplication{
     const double hmd_fov;//field of view
     float hmd_fov_h, hmd_fov_v;
     int RenderFrame_hz_count;
-
     void InitTextures(){
         std::cout << "Render " << m_nRenderWidth << " x " << m_nRenderHeight << std::endl;
       ros_img[L] = cv::Mat(cv::Size(m_nRenderWidth, m_nRenderHeight), CV_8UC3, CV_RGB(255,0,0));
@@ -87,12 +88,9 @@ class CMainApplicationMod : public CMainApplication{
     }
     void RenderFrame(){
       //ros::Time tmp = ros::Time::now();
-      //std::cout << "Rf(in)" << std::endl;
       if ( m_pHMD ){
-        //std::cout << "Rf(HMD)" << std::endl;
         RenderControllerAxes();
         RenderStereoTargets();
-        //std::cout << "Rf(update_texture)" << std::endl;
         UpdateTexturemaps();
         RenderCompanionWindow();
         vr::Texture_t leftEyeTexture = {(void*)(uintptr_t)leftEyeDesc.m_nResolveTextureId, vr::TextureType_OpenGL, vr::ColorSpace_Gamma };
@@ -238,6 +236,7 @@ class VIVEnode
     double world_yaw_;
     tf2_ros::TransformBroadcaster *tf_broadcaster_;
     //tf2_ros::TransformListener tf_listener_;
+    std::mutex mu_render;
 
     rclcpp::Service<std_srvs::srv::Empty>::SharedPtr set_origin_server_;
 #ifdef PUBLISH_TWIST
@@ -278,13 +277,19 @@ VIVEnode::VIVEnode(int rate)
   image_transport::ImageTransport it(ros2node);
   //sub_L = it.subscribe("/image_left", 1, &VIVEnode::imageCb_L, this);
   //sub_R = it.subscribe("/image_right", 1, &VIVEnode::imageCb_R, this);
-  //sub_V = it.subscribe("scene_camera/images",  1, std::bind(&VIVEnode::imagesVerticalCb, this, _1));
+  //
   //sub_V = it.subscribe("scene_camera/images/compressed",  1, std::bind(&VIVEnode::imagesVerticalCb, this, _1));
   //sub_V = image_transport::create_subscription(ros2node.get(), "scene_camera/images",
   //std::bind(&VIVEnode::imagesVerticalCb, this, _1), "compressed");
   //sub_i_V = ros2node->create_subscription<sensor_msgs::msg::CameraInfo>("scene_camera/camera_info",  1, std::bind(&VIVEnode::infoCb, this, _1));
-  sub_compress = ros2node->create_subscription<sensor_msgs::msg::CompressedImage>("scene_camera/compressed_images",  1,
-                                                                                  std::bind(&VIVEnode::compressCb, this, _1));
+#if 0
+  // raw version
+  sub_V = it.subscribe("scene_camera/images",  1, std::bind(&VIVEnode::imagesVerticalCb, this, _1));
+#endif
+  // compress version
+#if 1
+  sub_compress = ros2node->create_subscription<sensor_msgs::msg::CompressedImage>("scene_camera/compressed_images",  1,                                                                                            std::bind(&VIVEnode::compressCb, this, _1));
+#endif
   pMainApplication = new CMainApplicationMod( 0, NULL );
   if (!pMainApplication->BInit()){
     pMainApplication->Shutdown();
@@ -582,7 +587,10 @@ void VIVEnode::Run()
     pMainApplication->HandleInput();
     //
     //std::cout << "Rf;" << std::endl;
-    pMainApplication->RenderFrame();
+    {
+      std::lock_guard<std::mutex> lock(mu_render);
+      pMainApplication->RenderFrame();
+    }
 #endif
 
     // ROS_INFO_THROTTLE(1.0,"Run() @ %d [fps]", [](int& cin){int ans = cin; cin=0; return ans;}(run_hz_count));
@@ -602,8 +610,12 @@ void VIVEnode::imagesVerticalCb(const sensor_msgs::msg::Image::ConstSharedPtr &m
       int height = img_src.rows/2;
       cv::Rect l_roi(0,      0, width, height);
       cv::Rect r_roi(0, height, width, height);
-      pMainApplication->ros_img[L] = img_src(l_roi);
-      pMainApplication->ros_img[R] = img_src(r_roi);
+      //
+      {
+          std::lock_guard<std::mutex> lock(mu_render);
+          img_src(l_roi).copyTo(pMainApplication->ros_img[L]);
+          img_src(r_roi).copyTo(pMainApplication->ros_img[R]);
+      }
       // std::cout << width << " x " << height << std::endl;
     } catch (cv_bridge::Exception& e) {
         //ROS_ERROR_THROTTLE(1, "Unable to convert '%s' image for display: '%s'", msg->encoding.c_str(), e.what());
@@ -633,8 +645,11 @@ void VIVEnode::compressCb(const sensor_msgs::msg::CompressedImage::ConstSharedPt
       int height = img_src.rows/2;
       cv::Rect l_roi(0,      0, width, height);
       cv::Rect r_roi(0, height, width, height);
-      pMainApplication->ros_img[L] = img_src(l_roi);
-      pMainApplication->ros_img[R] = img_src(r_roi);
+      {
+          std::lock_guard<std::mutex> lock(mu_render);
+          img_src(l_roi).copyTo(pMainApplication->ros_img[L]);
+          img_src(r_roi).copyTo(pMainApplication->ros_img[R]);
+      }
       // std::cout << width << " x " << height << std::endl;
     } catch (cv_bridge::Exception& e) {
         //ROS_ERROR_THROTTLE(1, "Unable to convert '%s' image for display: '%s'", msg->encoding.c_str(), e.what());
