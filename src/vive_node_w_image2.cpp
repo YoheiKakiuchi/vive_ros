@@ -271,7 +271,7 @@ class VIVEnode
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr twist2_pub_;
 #endif
     rclcpp::Subscription<sensor_msgs::msg::JoyFeedback>::SharedPtr feedback_sub_;
-    //std::map<std::string, ros::Publisher> button_states_pubs_map;
+    std::map<std::string, rclcpp::Publisher<sensor_msgs::msg::Joy>::SharedPtr > button_states_pubs_map;
 };
 
 VIVEnode::VIVEnode(int rate)
@@ -484,32 +484,55 @@ void VIVEnode::Run()
 
         vr::VRControllerState_t state;
         vr_.HandleInput(i, state);
+#if 0 // DEBUG_PRINT
+        std::cout << "\x1B[2J\x1B[H";
+        std::cerr << std::endl;
+        std::cerr << std::endl;
+        std::cerr << "bpress : ";
+        std::cerr << std::hex << state.ulButtonPressed << std::endl;
+        std::cerr << "btouch : ";
+        std::cerr << std::hex << state.ulButtonTouched << std::endl;
+        std::cerr << "axis0 : " << state.rAxis[0].x << ", " << state.rAxis[0].y << std::endl;
+        std::cerr << "axis1 : " << state.rAxis[1].x << ", " << state.rAxis[1].y << std::endl;
+        std::cerr << "axis2 : " << state.rAxis[2].x << ", " << state.rAxis[2].y << std::endl;
+        std::cerr << "axis3 : " << state.rAxis[3].x << ", " << state.rAxis[3].y << std::endl;
+#endif
         sensor_msgs::msg::Joy joy;
         joy.header.stamp = ros_clock.now();
         joy.header.frame_id = "controller_"+cur_sn;
-        joy.buttons.assign(BUTTON_NUM, 0);
-        joy.axes.assign(AXES_NUM, 0.0); // x-axis, y-axis
+        joy.buttons.assign(5, 0);
+        joy.axes.assign(4, 0.0); // x-axis, y-axis
+        // ButtonA
+        if((1LL << vr::k_EButton_A) & state.ulButtonPressed)
+            joy.buttons[0] = 1;
+        // ButtonB
         if((1LL << vr::k_EButton_ApplicationMenu) & state.ulButtonPressed)
-          joy.buttons[0] = 1;
-        if((1LL << vr::k_EButton_SteamVR_Trigger) & state.ulButtonPressed)
-          joy.buttons[1] = 1;
+            joy.buttons[1] = 1;
+        // Stick
         if((1LL << vr::k_EButton_SteamVR_Touchpad) & state.ulButtonPressed)
-          joy.buttons[2] = 1;
+            joy.buttons[2] = 1;
+        // Finger0
+        if((1LL << vr::k_EButton_SteamVR_Trigger) & state.ulButtonPressed)
+            joy.buttons[3] = 1;
+        // Finger1
         if((1LL << vr::k_EButton_Grip) & state.ulButtonPressed)
-          joy.buttons[3] = 1;
-        // TrackPad's axis
+            joy.buttons[4] = 1;
+
+        // Stick
         joy.axes[0] = state.rAxis[0].x;
         joy.axes[1] = state.rAxis[0].y;
-        // Trigger's axis
+        // Finger0
         joy.axes[2] = state.rAxis[1].x;
+        // Finger1
+        joy.axes[3] = state.rAxis[2].x;
 //        #include <bitset> // bit debug
 //        std::cout << static_cast<std::bitset<64> >(state.ulButtonPressed) << std::endl;
 //        std::cout << static_cast<std::bitset<64> >(state.ulButtonTouched) << std::endl;
         //TODO
-        //if(button_states_pubs_map.count(cur_sn) == 0){
-        //button_states_pubs_map[cur_sn] = nh_.advertise<sensor_msgs::Joy>("/vive/controller_"+cur_sn+"/joy", 10);
-        //}
-        //button_states_pubs_map[cur_sn].publish(joy);
+        if(button_states_pubs_map.count(cur_sn) == 0) {
+            button_states_pubs_map[cur_sn] = ros2node->create_publisher<sensor_msgs::msg::Joy>("/vive/controller_"+cur_sn+"/joy", 5);
+        }
+        button_states_pubs_map[cur_sn]->publish(joy);
       }
       // It's a tracker
       if (dev_type == 3)
